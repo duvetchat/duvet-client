@@ -3,10 +3,10 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:web_socket_client/web_socket_client.dart' as ws;
-import 'package:duvet/http/rest.dart' show RestClient;
-import 'package:duvet/http/router.dart' show ApiRouter;
-import 'package:duvet/models/types.dart';
-import 'package:duvet/errors.dart';
+import 'package:duvet_client/http/rest.dart' show RestClient;
+import 'package:duvet_client/http/router.dart' show ApiRouter;
+import 'package:duvet_client/models/types.dart';
+import 'package:duvet_client/errors.dart';
 
 /// A single WebSocket connection to the gateway.
 ///

@@ -1,10 +1,10 @@
 import 'dart:async';
 
-import 'package:duvet/gateway/client.dart';
-import 'package:duvet/gateway/events.dart';
-import 'package:duvet/errors.dart';
-import 'package:duvet/http/rest.dart';
-import 'package:duvet/models/types.dart';
+import 'package:duvet_client/gateway/client.dart';
+import 'package:duvet_client/gateway/events.dart';
+import 'package:duvet_client/errors.dart';
+import 'package:duvet_client/http/rest.dart';
+import 'package:duvet_client/models/types.dart';
 import 'package:http/http.dart' as http;
 
 void defaultLog(int shardId, String msg) {

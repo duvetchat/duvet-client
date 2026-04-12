@@ -1,4 +1,4 @@
-import 'package:duvet/utils/util.dart';
+import 'package:duvet_client/utils/util.dart';
 part 'gateway_envelope.dart';
 
 // ---------------------------------------------------------------------------

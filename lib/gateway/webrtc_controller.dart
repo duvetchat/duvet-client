@@ -1,11 +1,11 @@
 // this codebase (this file) is the only one that's not largely made by me
-// all copyright goes to the Duvet authors (MARCROCK22 and n128)
+// all copyright goes to the duvet authors (MARCROCK22 and n128)
 // I am a mere contributor who cloned the TS codebase
 
 import 'dart:async';
 
-import 'package:duvet/gateway/manager.dart';
-import 'package:duvet/models/types.dart';
+import 'package:duvet_client/gateway/manager.dart';
+import 'package:duvet_client/models/types.dart';
 
 /// Snapshot of a single participant's voice state inside a room.
 ///

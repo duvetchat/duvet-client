@@ -1,8 +1,8 @@
 // this was also largely inspired by Nyxx
 
 import 'dart:async';
-import 'package:duvet/models/types.dart';
-import 'package:duvet/utils/extensions.dart';
+import 'package:duvet_client/models/types.dart';
+import 'package:duvet_client/utils/extensions.dart';
 
 mixin GatewayEvents {
   /// Unified broadcast stream of every [GatewayEventPayload] received across

@@ -1,10 +1,10 @@
 import 'package:http/http.dart' as http;
-import 'package:duvet/http/router.dart';
+import 'package:duvet_client/http/router.dart';
 
 import 'dart:io';
 import 'dart:convert' show jsonEncode, jsonDecode;
-import 'package:duvet/errors.dart';
-import 'package:duvet/models/types.dart';
+import 'package:duvet_client/errors.dart';
+import 'package:duvet_client/models/types.dart';
 
 // ---------------------------------------------------------------------------
 // Api responses
