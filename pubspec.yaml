@@ -1,6 +1,8 @@
 name: duvet
 description: Dart client library for the Duvet API.
 version: 0.1.0
+repository: https://github.com/duvetchat
+homepage: https://github.com/duvetchat
  
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -11,4 +13,3 @@ dependencies:
  
 dev_dependencies:
   lints: ^3.0.0
- 
