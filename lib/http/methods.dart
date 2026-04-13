@@ -200,13 +200,13 @@ mixin RestMethods {
   // avoid blocking the main thread / causing jank in Flutter UIs.
   Future<GatewayMessage> sendMessageWithFiles(
     String roomId,
-    List<File> files, [
+    List<File> files, {
     String? content,
     String? nonce,
     MessageReference? reference,
     List<Embed>? embeds,
     String? stickerAttachmentId,
-  ]) async {
+  }) async {
     final url = router.urlFromPath('/api/rooms/$roomId/messages');
 
     // read all file bytes concurrently with async I/O before building
@@ -218,7 +218,6 @@ mixin RestMethods {
       ..fields['content'] = content ?? ''
       ..fields['nonce'] = nonce ?? ''
       ..fields['reference'] = jsonEncode(reference?.toJson() ?? {})
-      ..fields['embeds'] = jsonEncode(embeds ?? [])
       ..fields['sticker_attachment_id'] = stickerAttachmentId ?? '';
 
     for (var i = 0; i < files.length; i++) {
@@ -229,8 +228,12 @@ mixin RestMethods {
       ));
     }
 
-    final http.StreamedResponse stream = await request.send();
-    final http.Response response = await http.Response.fromStream(stream);
+    if (embeds?.isEmpty == false) {
+			request.fields['embeds'] = jsonEncode(embeds ?? []);
+		}
+
+		final http.StreamedResponse stream = await request.send();
+    final response = await http.Response.fromStream(stream);
 
     _assertOk(response, 'send message');
 
@@ -555,7 +558,7 @@ mixin RestMethods {
       throw DuvetAuthException(
         action: action,
         statusCode: response.statusCode,
-        body: response.body,
+        body: '${response.body}\n${authHeaders.toString()}',
       );
     }
 

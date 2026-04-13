@@ -24,10 +24,10 @@ class RestClient with RestMethods {
 
   @override
   Map<String, String> get authHeaders => {
-        'Authorization': 'Bearer $_token',
-        'Cookie': _sessionCookie.value,
-        'Content-Type': 'application/json',
-      };
+		'Authorization': 'Bearer $_token',
+		'X-Session-Token': _sessionCookie.value,
+		'Content-Type': 'application/json',
+	};
 
   late String _token;
   late Cookie _sessionCookie;
@@ -74,7 +74,7 @@ class RestClient with RestMethods {
 
     if (response.statusCode == 401 || response.statusCode == 403) {
       throw DuvetAuthException(
-        action: 'log in',
+        action: 'log in ($url)',
         statusCode: response.statusCode,
         body: response.body,
       );
@@ -82,7 +82,7 @@ class RestClient with RestMethods {
 
     if (response.statusCode != 200) {
       throw DuvetApiException(
-        action: 'log in',
+        action: 'log in ($url)',
         statusCode: response.statusCode,
         reasonPhrase: response.reasonPhrase,
         body: response.body,
@@ -93,10 +93,11 @@ class RestClient with RestMethods {
     final data = SignIn.fromJson(body);
 
     for (final MapEntry(:key, :value) in response.headers.entries) {
-      if (key.toLowerCase() == 'set-cookie') {
+      if (key.toLowerCase() == 'set-cookie') {	
         _sessionCookie = Cookie.fromSetCookieValue(value);
       }
     }
+
     _token = data.token;
     return data;
   }

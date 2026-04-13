@@ -4,6 +4,7 @@ import 'package:duvet_client/gateway/client.dart';
 import 'package:duvet_client/gateway/events.dart';
 import 'package:duvet_client/errors.dart';
 import 'package:duvet_client/http/rest.dart';
+import 'package:duvet_client/http/router.dart';
 import 'package:duvet_client/models/types.dart';
 import 'package:http/http.dart' as http;
 
@@ -30,17 +31,25 @@ class GatewayManager with GatewayEvents {
   final List<StreamSubscription<dynamic>> _shardErrorSubs =
       List.empty(growable: true);
 
-  bool _destroyed = false;
+ 	bool _destroyed = false;
 
-  GatewayManager(this.api, this._log);
+	final ApiRouter router;
+
+  GatewayManager(this.api, {
+  	void Function(int shardId, String msg)? log,
+		ApiRouter? router,
+  })  : _log = log ?? defaultLog,
+        router = router ?? const ApiRouter();
 
   /// Creates a manager with a default [RestClient].
   ///
   /// The internal [http.Client] will be closed when [destroy] is called.
-  GatewayManager.withDefaultApi(
-      {void Function(int shardId, String msg) log = defaultLog})
-      : api = RestClient(http.Client()),
-        _log = log;
+  GatewayManager.withDefaultApi({
+		void Function(int shardId, String msg)? log,
+		ApiRouter? router,
+	}) : api = RestClient(http.Client()),
+        _log = log ?? defaultLog,
+        router = router ?? const ApiRouter();
 
   /// Spawns [shardCount] shards and connects each one.
   Future<void> connectAll({int shardCount = 1}) async {
@@ -87,7 +96,8 @@ class GatewayManager with GatewayEvents {
     final client = GatewayClient(api,
         shardId: shardId,
         shardCount: shardCount,
-        log: (msg) => _log(shardId, msg));
+        log: (msg) => _log(shardId, msg),
+				router: router);
 
     final StreamSubscription<GatewayEventPayload> sub = client.events.listen(
       (event) {
