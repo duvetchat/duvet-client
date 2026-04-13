@@ -31,13 +31,14 @@ class GatewayManager with GatewayEvents {
   final List<StreamSubscription<dynamic>> _shardErrorSubs =
       List.empty(growable: true);
 
- 	bool _destroyed = false;
+  bool _destroyed = false;
 
-	final ApiRouter router;
+  final ApiRouter router;
 
-  GatewayManager(this.api, {
-  	void Function(int shardId, String msg)? log,
-		ApiRouter? router,
+  GatewayManager(
+    this.api, {
+    void Function(int shardId, String msg)? log,
+    ApiRouter? router,
   })  : _log = log ?? defaultLog,
         router = router ?? const ApiRouter();
 
@@ -45,9 +46,9 @@ class GatewayManager with GatewayEvents {
   ///
   /// The internal [http.Client] will be closed when [destroy] is called.
   GatewayManager.withDefaultApi({
-		void Function(int shardId, String msg)? log,
-		ApiRouter? router,
-	}) : api = RestClient(http.Client()),
+    void Function(int shardId, String msg)? log,
+    ApiRouter? router,
+  })  : api = RestClient(http.Client()),
         _log = log ?? defaultLog,
         router = router ?? const ApiRouter();
 
@@ -97,7 +98,7 @@ class GatewayManager with GatewayEvents {
         shardId: shardId,
         shardCount: shardCount,
         log: (msg) => _log(shardId, msg),
-				router: router);
+        router: router);
 
     final StreamSubscription<GatewayEventPayload> sub = client.events.listen(
       (event) {

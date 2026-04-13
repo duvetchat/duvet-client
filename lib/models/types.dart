@@ -246,12 +246,12 @@ class MessageReference {
         spaceId = j['space_id'] as String?,
         failIfNotExists = j['fail_if_not_exists'] as bool?;
 
-	MessageReference.fromMessage(GatewayMessage m)
-		: type = MessageReferenceType.reply,
-			messageId = m.id,
-			roomId = m.roomId,
-			spaceId = null,
-			failIfNotExists = true;
+  MessageReference.fromMessage(GatewayMessage m)
+      : type = MessageReferenceType.reply,
+        messageId = m.id,
+        roomId = m.roomId,
+        spaceId = null,
+        failIfNotExists = true;
 
   Map<String, dynamic> toJson() => {
         if (type != null) 'type': type!.value,

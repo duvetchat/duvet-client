@@ -1,3 +1,9 @@
+## 0.1.1
+- Fix: issue with authentication
+- Tidy up the code
+- Add a more reliable test module
+- Tested on my own instance
+
 ## 0.1.0
 
 - **Migrate to null safety** (requires Dart SDK >=3.0.0).

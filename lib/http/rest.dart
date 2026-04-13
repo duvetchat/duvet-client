@@ -24,10 +24,10 @@ class RestClient with RestMethods {
 
   @override
   Map<String, String> get authHeaders => {
-		'Authorization': 'Bearer $_token',
-		'X-Session-Token': _sessionCookie.value,
-		'Content-Type': 'application/json',
-	};
+        'Authorization': 'Bearer $_token',
+        'X-Session-Token': _sessionCookie.value,
+        'Content-Type': 'application/json',
+      };
 
   late String _token;
   late Cookie _sessionCookie;
@@ -93,7 +93,7 @@ class RestClient with RestMethods {
     final data = SignIn.fromJson(body);
 
     for (final MapEntry(:key, :value) in response.headers.entries) {
-      if (key.toLowerCase() == 'set-cookie') {	
+      if (key.toLowerCase() == 'set-cookie') {
         _sessionCookie = Cookie.fromSetCookieValue(value);
       }
     }

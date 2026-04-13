@@ -229,10 +229,10 @@ mixin RestMethods {
     }
 
     if (embeds?.isEmpty == false) {
-			request.fields['embeds'] = jsonEncode(embeds ?? []);
-		}
+      request.fields['embeds'] = jsonEncode(embeds ?? []);
+    }
 
-		final http.StreamedResponse stream = await request.send();
+    final http.StreamedResponse stream = await request.send();
     final response = await http.Response.fromStream(stream);
 
     _assertOk(response, 'send message');
@@ -241,7 +241,7 @@ mixin RestMethods {
         jsonDecode(response.body) as Map<String, dynamic>);
   }
 
-	// TODO: move to the const Router
+  // TODO: move to the const Router
   Future<List<Message>> getMessages(
     String roomId, {
     int limit = 50,
@@ -361,7 +361,7 @@ mixin RestMethods {
     bool? hoisted,
     int? position,
 
-		/// NOTE:
+    /// NOTE:
     /// When true, null color fields explicitly clear those colors in the DB.
     bool? clearColors,
   }) async {
