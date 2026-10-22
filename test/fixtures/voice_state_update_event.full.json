@@ -1,0 +1,9 @@
+{
+  "room_id": "s-string",
+  "user_id": "s-string",
+  "joined": true,
+  "muted": true,
+  "deafened": true,
+  "screen_sharing": true,
+  "version": 2
+}

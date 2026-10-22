@@ -1,0 +1,56 @@
+{
+  "user": {
+    "id": "10020202-0202-7002-8002-020202020202",
+    "username": "s-string",
+    "email_verified": true,
+    "alias": "s-string",
+    "avatar": "s-string",
+    "banner": "s-string",
+    "custom": "s-string",
+    "flags": 2,
+    "badges": 2,
+    "is_bot": true,
+    "created_at": "2026-10-22T10:00:00.123456789Z",
+    "updated_at": "2026-10-22T10:00:00.123456789Z"
+  },
+  "sessionToken": "10020202-0202-7002-8002-020202020202",
+  "guild_ids": [
+    "s-string"
+  ],
+  "unread_rooms": [
+    "s-string"
+  ],
+  "last_read_rooms": {
+    "s-string": "s-string"
+  },
+  "last_msg_rooms": {
+    "s-string": "s-string"
+  },
+  "unread_convs": [
+    "s-string"
+  ],
+  "active_calls": [
+    {
+      "conversation_id": "s-string",
+      "initiator_id": "s-string",
+      "voice_states": [
+        {
+          "user_id": "s-string",
+          "muted": true,
+          "deafened": true,
+          "screen_sharing": true,
+          "version": 2
+        }
+      ]
+    }
+  ],
+  "ice_servers": [
+    {
+      "credentialType": "unknown",
+      "urls": [
+        "s-string"
+      ],
+      "username": "s-string"
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "space": {
+    "id": "10020202-0202-7002-8002-020202020202",
+    "name": "s-string",
+    "description": "s-string",
+    "owner_id": "10020202-0202-7002-8002-020202020202",
+    "icon": "s-string",
+    "banner": "s-string",
+    "locale": "s-string",
+    "created_at": "2026-10-22T10:00:00.123456789Z",
+    "updated_at": "2026-10-22T10:00:00.123456789Z"
+  },
+  "member_roles": {
+    "s-string": [
+      "s-string"
+    ]
+  },
+  "roles_permissions": {
+    "s-string": {
+      "id": "11020202-0202-7002-8002-020202020202",
+      "space_id": "11020202-0202-7002-8002-020202020202",
+      "name": "s-string",
+      "color_from": 2,
+      "color_via": 2,
+      "color_to": 2,
+      "flags": 2,
+      "permissions": 2,
+      "created_at": "2026-10-22T10:00:00.123456789Z",
+      "updated_at": "2026-10-22T10:00:00.123456789Z",
+      "hoisted": true,
+      "position": 2
+    }
+  },
+  "rooms": {
+    "s-string": {
+      "id": "11020202-0202-7002-8002-020202020202",
+      "space_id": "12020202-0202-7002-8002-020202020202",
+      "parent_id": "12020202-0202-7002-8002-020202020202",
+      "type": 2,
+      "name": "s-string",
+      "description": "s-string",
+      "position": 2,
+      "nsfw": true,
+      "created_at": "2026-10-22T10:00:00.123456789Z",
+      "updated_at": "2026-10-22T10:00:00.123456789Z"
+    }
+  },
+  "overwrites": {
+    "s-string": [
+      {
+        "id": "12020202-0202-7002-8002-020202020202",
+        "room_id": "12020202-0202-7002-8002-020202020202",
+        "target_id": "12020202-0202-7002-8002-020202020202",
+        "target_type": 2,
+        "deny_flags": 2,
+        "allow_flags": 2,
+        "created_at": "2026-10-22T10:00:00.123456789Z",
+        "updated_at": "2026-10-22T10:00:00.123456789Z"
+      }
+    ]
+  },
+  "owner_id": "s-string",
+  "voice_states": [
+    {
+      "room_id": "11020202-0202-7002-8002-020202020202",
+      "user_id": "11020202-0202-7002-8002-020202020202",
+      "muted": true,
+      "deafened": true,
+      "screen_sharing": true,
+      "version": 2
+    }
+  ],
+  "activities": {
+    "s-string": [
+      {
+        "name": "s-string",
+        "details": "s-string",
+        "state": "s-string",
+        "timestamps": {
+          "start": 2,
+          "end": 2
+        },
+        "assets": {
+          "large_image": "s-string",
+          "large_text": "s-string",
+          "small_image": "s-string",
+          "small_text": "s-string"
+        }
+      }
+    ]
+  },
+  "member_statuses": {
+    "s-string": 2
+  }
+}

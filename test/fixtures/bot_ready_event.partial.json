@@ -1,0 +1,22 @@
+{
+  "user": {
+    "id": "10020202-0202-7002-8002-020202020202",
+    "username": "s-string",
+    "email_verified": false,
+    "alias": null,
+    "avatar": null,
+    "banner": null,
+    "custom": "s-string",
+    "flags": 2,
+    "badges": 2,
+    "is_bot": false,
+    "created_at": "2026-10-22T10:00:00.123456789Z",
+    "updated_at": "2026-10-22T10:00:00.123456789Z"
+  },
+  "sessionToken": "10020202-0202-7002-8002-020202020202",
+  "guild_ids": [],
+  "shard": [
+    2,
+    2
+  ]
+}

@@ -1,0 +1,124 @@
+// Shared by the fixture generators: copied next to them by generate.sh.
+
+package zzfixtures
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+)
+
+type variant int
+
+const (
+	// full sets every pointer and makes every slice and map one element long.
+	full variant = iota
+	// nulls leaves every pointer nil and every slice and map empty, as sqlc
+	// emits them.
+	nulls
+	// partial sets the pointers to structs (a message's user, its reference)
+	// but leaves the others nil and the slices and maps empty: a history
+	// message's partial user has a null alias and avatar.
+	partial
+)
+
+func (v variant) String() string { return [...]string{"full", "nulls", "partial"}[v] }
+
+// fill gives every field of v a value, as variant says.
+func fill(v reflect.Value, mode variant, depth int) {
+	isFull := mode == full
+	t := v.Type()
+	switch {
+	case t == reflect.TypeOf(time.Time{}):
+		v.Set(reflect.ValueOf(time.Date(2026, 10, 22, 10, 0, 0, 123456789, time.UTC)))
+		return
+	case t == reflect.TypeOf(json.RawMessage{}):
+		if isFull {
+			v.Set(reflect.ValueOf(json.RawMessage(`{"k":"v"}`)))
+		} else {
+			v.Set(reflect.ValueOf(json.RawMessage(`null`)))
+		}
+		return
+	}
+	switch t.Kind() {
+	case reflect.String:
+		v.SetString("s-" + strings.ToLower(t.Name()))
+	case reflect.Bool:
+		v.SetBool(isFull)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v.SetInt(2)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		v.SetUint(2)
+	case reflect.Float32, reflect.Float64:
+		v.SetFloat(1.5)
+	case reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			fill(v.Index(i), mode, depth)
+		}
+		if t.Elem().Kind() == reflect.Uint8 { // a uuid
+			v.Index(0).SetUint(uint64(0x10 + depth))
+			v.Index(6).SetUint(0x70)
+			v.Index(8).SetUint(0x80)
+		}
+	case reflect.Pointer:
+		structPtr := t.Elem().Kind() == reflect.Struct && t.Elem() != reflect.TypeOf(time.Time{})
+		if depth > 6 || mode == nulls || (mode == partial && !structPtr) {
+			return
+		}
+		p := reflect.New(t.Elem())
+		fill(p.Elem(), mode, depth+1)
+		v.Set(p)
+	case reflect.Slice:
+		s := reflect.MakeSlice(t, 0, 1)
+		if isFull && depth <= 6 {
+			e := reflect.New(t.Elem()).Elem()
+			fill(e, mode, depth+1)
+			s = reflect.Append(s, e)
+		}
+		v.Set(s)
+	case reflect.Map:
+		m := reflect.MakeMap(t)
+		if isFull && depth <= 6 {
+			k := reflect.New(t.Key()).Elem()
+			fill(k, mode, depth+1)
+			e := reflect.New(t.Elem()).Elem()
+			fill(e, mode, depth+1)
+			m.SetMapIndex(k, e)
+		}
+		v.Set(m)
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			if v.Field(i).CanSet() {
+				fill(v.Field(i), mode, depth)
+			}
+		}
+	}
+}
+
+// write marshals make's value of each variant to FIXTURES_DIR/name.variant.json.
+func write(t *testing.T, name string, make func(variant) any) {
+	dir := os.Getenv("FIXTURES_DIR")
+	if dir == "" {
+		t.Skip("FIXTURES_DIR is not set")
+	}
+	for _, mode := range []variant{full, nulls, partial} {
+		b, err := json.MarshalIndent(make(mode), "", "  ")
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name+"."+mode.String()+".json"), append(b, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// of is a T as mode fills it.
+func of[T any](mode variant) any {
+	var v T
+	fill(reflect.ValueOf(&v).Elem(), mode, 0)
+	return v
+}

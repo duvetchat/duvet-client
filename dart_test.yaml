@@ -1,0 +1,4 @@
+tags:
+  # Talks to the real instance; see test/live_test.dart.
+  live:
+    timeout: 2x

@@ -1,0 +1,16 @@
+{
+  "id": "10020202-0202-7002-8002-020202020202",
+  "owner_id": "10020202-0202-7002-8002-020202020202",
+  "name": "s-string",
+  "endpoint": "s-string",
+  "region": "s-string",
+  "bucket_name": "s-string",
+  "access_key_id": "s-string",
+  "is_active": false,
+  "is_default": false,
+  "use_path_style": false,
+  "max_bytes": null,
+  "upload_limit_bytes": null,
+  "created_at": "2026-10-22T10:00:00.123456789Z",
+  "updated_at": "2026-10-22T10:00:00.123456789Z"
+}

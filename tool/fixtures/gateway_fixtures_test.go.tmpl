@@ -1,0 +1,24 @@
+// The events the gateway makes itself (the "data" of each).
+
+package zzfixtures
+
+import (
+	"testing"
+
+	gw "github.com/duvetchat/gateway/internal/core/services"
+)
+
+func TestWriteFixtures(t *testing.T) {
+	w := func(name string, make func(variant) any) { write(t, name, make) }
+	w("ready_event", of[gw.ReadyEvent])
+	w("bot_ready_event", of[gw.BotReadyEvent])
+	w("space_create_event", of[gw.SpaceCreateEvent])
+	w("call_incoming_event", of[gw.CallIncomingEvent])
+	w("call_member_event", of[gw.CallMemberEvent])
+	w("call_ended_event", of[gw.CallEndedEvent])
+	w("voice_joined_event", of[gw.VoiceJoinedEvent])
+	w("voice_state_update_event", of[gw.VoiceStateUpdateEvent])
+	w("webrtc_ice_candidate_event", of[gw.WebRTCIceCandidateEvent])
+	w("webrtc_renegotiate_event", of[gw.WebRTCRenegotiateEvent])
+	w("webrtc_renegotiate_answer_event", of[gw.WebRTCRenegotiateAnswerEvent])
+}

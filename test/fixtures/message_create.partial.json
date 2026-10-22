@@ -1,0 +1,50 @@
+{
+  "id": "10020202-0202-7002-8002-020202020202",
+  "room_id": null,
+  "author_id": null,
+  "content": null,
+  "type": 2,
+  "created_at": "2026-10-22T10:00:00.123456789Z",
+  "updated_at": "2026-10-22T10:00:00.123456789Z",
+  "nonce": "s-string",
+  "attachments": [],
+  "reactions": [],
+  "user": {
+    "id": "11020202-0202-7002-8002-020202020202",
+    "username": "s-string",
+    "email_verified": false,
+    "alias": null,
+    "avatar": null,
+    "banner": null,
+    "custom": "s-string",
+    "created_at": "2026-10-22T10:00:00.123456789Z",
+    "updated_at": "2026-10-22T10:00:00.123456789Z",
+    "deleted_at": null,
+    "is_bot": false,
+    "flags": 2,
+    "badges": 2
+  },
+  "referenced_message": {
+    "type": null,
+    "message_id": null,
+    "room_id": null,
+    "space_id": null,
+    "author_id": "s-string",
+    "author_name": "s-string"
+  },
+  "sticker_attachment_id": null,
+  "embeds": [],
+  "flags": 2,
+  "components": [],
+  "interaction_metadata": {
+    "id": "11020202-0202-7002-8002-020202020202",
+    "type": 2,
+    "user": {
+      "id": "11020202-0202-7002-8002-020202020202",
+      "username": "s-string",
+      "alias": null,
+      "avatar": null
+    },
+    "name": "s-string"
+  }
+}

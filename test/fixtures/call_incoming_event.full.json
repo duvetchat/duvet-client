@@ -1,0 +1,6 @@
+{
+  "conversation_id": "s-string",
+  "initiator_id": "s-string",
+  "initiator_name": "s-string",
+  "initiator_avatar": "s-string"
+}

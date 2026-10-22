@@ -1,0 +1,21 @@
+{
+  "space_id": "10020202-0202-7002-8002-020202020202",
+  "user_id": "10020202-0202-7002-8002-020202020202",
+  "member_id": "10020202-0202-7002-8002-020202020202",
+  "status_id": 2,
+  "user": {
+    "id": "11020202-0202-7002-8002-020202020202",
+    "username": "s-string",
+    "email_verified": false,
+    "alias": null,
+    "avatar": null,
+    "banner": null,
+    "custom": "s-string",
+    "created_at": "2026-10-22T10:00:00.123456789Z",
+    "updated_at": "2026-10-22T10:00:00.123456789Z",
+    "deleted_at": null,
+    "is_bot": false,
+    "flags": 2,
+    "badges": 2
+  }
+}

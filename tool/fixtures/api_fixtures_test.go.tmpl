@@ -1,0 +1,87 @@
+// The API's response types and the gateway events it publishes (the "data"
+// of each), as handlers pass them to c.JSON and services to Redis.
+
+package zzfixtures
+
+import (
+	"testing"
+
+	q "github.com/duvetchat/api/database/out"
+	st "github.com/duvetchat/api/internal/adapters/storage"
+	ev "github.com/duvetchat/api/internal/domain/events"
+	ser "github.com/duvetchat/api/internal/http/serializers"
+	svc "github.com/duvetchat/api/internal/services"
+)
+
+func TestWriteFixtures(t *testing.T) {
+	w := func(name string, make func(variant) any) { write(t, name, make) }
+
+	// REST responses
+	w("user_me", of[ser.UserMe])
+	w("user", of[q.User])
+	w("storage_status", of[q.GetUserStorageStatusRow])
+	w("attachment", of[st.AttachmentWithURL])
+	w("bucket_list_row", of[q.GetStorageBucketsByOwnerIDRow])
+	w("bucket_create_row", of[q.CreateStorageBucketRow])
+	w("team", of[q.Team])
+	w("team_member", of[q.GetTeamMembersRow])
+	w("team_invite", of[q.GetPendingTeamInvitesRow])
+	w("application", of[q.Application])
+	w("message_response", of[ser.MessageResponse])
+	w("thread_message", of[ser.ThreadMessageResponse])
+	w("message_search", of[ser.MessageSearchResponse])
+	w("message_model", of[q.Message])
+	w("space", of[q.Space])
+	w("room", of[q.Room])
+	w("role", of[q.Role])
+	w("room_overwrite", of[q.RoomOverwrite])
+	w("invite_link", of[q.InviteLink])
+	w("space_emoji", of[q.SpaceEmoji])
+	w("space_sticker", of[q.SpaceSticker])
+	w("webhook", of[q.Webhook])
+	w("webhook_create", func(mode variant) any {
+		return map[string]any{"webhook": of[q.Webhook](mode), "token": "tok"}
+	})
+	w("space_member", of[q.GetMembersBySpaceIdPaginatedRow])
+	w("conversation", of[ev.ConversationCreate])
+	w("conversation_member_row", of[q.GetConversationMembersRow])
+	w("conversation_member", of[q.ConversationMember])
+	w("friend", of[q.GetFriendsByUserIDRow])
+	w("friend_request_row", of[q.GetPendingFriendRequestsRow])
+	w("friend_request", of[q.FriendRequest])
+	w("space_commands", of[ser.SpaceCommandsResponse])
+	w("invite_info", of[svc.InviteInfoResult])
+	w("interaction_created", of[ser.InteractionCreated])
+
+	// Gateway events (also REST responses: message_create, dm_message_*)
+	w("message_create", of[ev.MessageCreate])
+	w("message_update", of[ev.MessageUpdate])
+	w("message_delete", of[ev.MessageDelete])
+	w("dm_message_create", of[ev.DMMessageCreate])
+	w("dm_message_update", of[ev.DMMessageUpdate])
+	w("dm_message_delete_event", of[ev.DMMessageDelete])
+	w("friend_request_create_event", of[ev.FriendRequestCreate])
+	w("friend_request_accept_event", of[ev.FriendRequestAccept])
+	w("friend_request_reject_event", of[ev.FriendRequestReject])
+	w("friend_remove_event", of[ev.FriendRemove])
+	w("reaction_add_event", of[ev.ReactionAdd])
+	w("reaction_remove_event", of[ev.ReactionRemove])
+	w("dm_reaction_add_event", of[ev.DMReactionAdd])
+	w("dm_reaction_remove_event", of[ev.DMReactionRemove])
+	w("typing_event", of[ev.Typing])
+	w("dm_typing_event", of[ev.DMTyping])
+	w("member_role_add_event", of[ev.MemberRoleAdd])
+	w("member_role_remove_event", of[ev.MemberRoleRemove])
+	w("role_delete_event", of[ev.RoleDelete])
+	w("room_delete_event", of[ev.RoomDelete])
+	w("room_overwrite_delete_event", of[ev.RoomOverwriteDelete])
+	w("space_delete_event", of[ev.SpaceDelete])
+	w("space_member_add_event", of[ev.SpaceMemberAdd])
+	w("space_member_remove_event", of[ev.SpaceMemberRemove])
+	w("conversation_update_event", of[ev.ConversationUpdate])
+	w("conversation_member_add_event", of[ev.ConversationMemberAdd])
+	w("conversation_member_remove_event", of[ev.ConversationMemberRemove])
+	w("mention_create_event", of[ev.MentionCreate])
+	w("user_status_update_event", of[ev.UserStatusUpdate])
+	w("user_update_event", of[ev.UserUpdate])
+}

@@ -1,0 +1,7 @@
+{
+  "offer": {
+    "type": "pranswer",
+    "sdp": "s-string"
+  },
+  "room_id": "s-string"
+}

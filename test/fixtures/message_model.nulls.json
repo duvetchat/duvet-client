@@ -1,0 +1,22 @@
+{
+  "id": "10020202-0202-7002-8002-020202020202",
+  "room_id": null,
+  "author_id": null,
+  "content": null,
+  "created_at": "2026-10-22T10:00:00.123456789Z",
+  "updated_at": "2026-10-22T10:00:00.123456789Z",
+  "deleted_at": null,
+  "conversation_id": null,
+  "ref_type": null,
+  "ref_message_id": null,
+  "ref_room_id": null,
+  "ref_space_id": null,
+  "embeds": [],
+  "type": 2,
+  "sticker_attachment_id": null,
+  "webhook_id": null,
+  "pinned_at": null,
+  "flags": 2,
+  "components": [],
+  "interaction_metadata": null
+}

@@ -1,0 +1,47 @@
+{
+  "applications": [
+    {
+      "id": "11020202-0202-7002-8002-020202020202",
+      "name": "s-string",
+      "bot": {
+        "id": "11020202-0202-7002-8002-020202020202",
+        "username": "s-string",
+        "alias": "s-string",
+        "avatar": "s-string"
+      }
+    }
+  ],
+  "commands": [
+    {
+      "id": "11020202-0202-7002-8002-020202020202",
+      "type": 2,
+      "application_id": "11020202-0202-7002-8002-020202020202",
+      "name": "s-string",
+      "description": "s-string",
+      "options": [
+        {
+          "type": 2,
+          "name": "s-string",
+          "description": "s-string",
+          "required": true,
+          "choices": [
+            {
+              "name": "s-string",
+              "value": {
+                "k": "v"
+              }
+            }
+          ],
+          "min_value": 1.5,
+          "max_value": 1.5,
+          "min_length": 2,
+          "max_length": 2,
+          "room_types": [
+            2
+          ]
+        }
+      ],
+      "version": "2026-10-22T10:00:00.123456789Z"
+    }
+  ]
+}

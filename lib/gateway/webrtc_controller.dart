@@ -57,7 +57,7 @@ class VoiceParticipant {
 /// // Subscribe to signalling events
 /// rtc.onVoiceJoined.listen((e) {
 ///   // server confirms we joined; start WebRTC handshake here
-///   startPeerConnection(e.data.sdp);
+///   startPeerConnection(e.data.answer?.sdp);
 /// });
 ///
 /// rtc.onIceCandidate.listen((e) {

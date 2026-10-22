@@ -9,9 +9,9 @@ base class ApiRouter {
   final String cdn;
 
   const ApiRouter({
-    this.api = 'duvet-api.andremor.eu.org',
-    this.ws = 'duvet-ws.andremor.eu.org',
-    this.base = 'duvet.andremor.eu.org',
+    this.api = 'api.duvet.chat',
+    this.ws = 'ws.duvet.chat',
+    this.base = 'duvet.chat',
     this.cdn = 'none',
   });
 
@@ -23,12 +23,18 @@ base class ApiRouter {
     return base;
   }
 
-  Uri urlFromPath(String path) {
+  /// The API's URL for [path], whose segments must already be encoded (see
+  /// [Uri.encodeComponent]), with [query]'s non-null values; a list value
+  /// repeats its key.
+  Uri urlFromPath(String path, {Map<String, dynamic>? query}) {
     // more aesthetic, less scalable, keep it
-    if (path.startsWith(apiBasePath)) {
-      return Uri.https(api, path);
-    } else {
-      return Uri.https(api, apiBasePath + path);
-    }
+    final full = path.startsWith(apiBasePath) ? path : apiBasePath + path;
+    final url = Uri.parse('https://$api$full');
+    final params = <String, dynamic>{
+      for (final MapEntry(:key, :value) in (query ?? {}).entries)
+        if (value != null)
+          key: value is Iterable ? value.map((v) => '$v').toList() : '$value',
+    };
+    return params.isEmpty ? url : url.replace(queryParameters: params);
   }
 }

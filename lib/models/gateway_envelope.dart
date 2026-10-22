@@ -100,9 +100,9 @@ class GatewayEnvelope {
       case 'REACTION_REMOVE':
         return ReactionRemovedEvent(ReactionRemoveEvent.fromJson(d));
       case 'FRIEND_REQUEST_CREATE':
-        return FriendRequestCreatedEvent(FriendRequest.fromJson(d));
+        return FriendRequestCreatedEvent(FriendRequestCreateEvent.fromJson(d));
       case 'FRIEND_REQUEST_ACCEPT':
-        return FriendRequestAcceptedEvent(Friend.fromJson(d));
+        return FriendRequestAcceptedEvent(FriendRequestAcceptEvent.fromJson(d));
       case 'FRIEND_REQUEST_REJECT':
         return FriendRequestRejectedEvent(FriendRequestRejectEvent.fromJson(d));
       case 'FRIEND_REMOVE':

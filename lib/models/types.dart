@@ -1,5 +1,6 @@
 import 'package:duvet_client/utils/util.dart';
 part 'gateway_envelope.dart';
+part 'rest_types.dart';
 
 // ---------------------------------------------------------------------------
 // Primitive enums
@@ -48,6 +49,10 @@ final class RoomType extends EnumLike<int, RoomType> {
 final class MessageType extends EnumLike<int, MessageType> {
   static const text = MessageType(0);
   static const voice = MessageType(1);
+
+  /// A room's or conversation's notice that its author pinned the message it
+  /// references; no content.
+  static const pinNotice = MessageType(2);
   const MessageType(super.value);
 
   static MessageType fromInt(int v) => MessageType(v);
@@ -67,17 +72,24 @@ class EmbedMedia {
   final int? width;
   final int? height;
 
-  const EmbedMedia({required this.url, this.width, this.height});
+  /// A video's media type, when known: video/* plays as a file, text/html is
+  /// a player page.
+  final String? contentType;
+
+  const EmbedMedia(
+      {required this.url, this.width, this.height, this.contentType});
 
   EmbedMedia.fromJson(Map<String, dynamic> j)
       : url = j['url'] as String,
         width = j['width'] as int?,
-        height = j['height'] as int?;
+        height = j['height'] as int?,
+        contentType = j['content_type'] as String?;
 
   Map<String, dynamic> toJson() => {
         'url': url,
         if (width != null) 'width': width,
-        if (height != null) 'height': height
+        if (height != null) 'height': height,
+        if (contentType != null) 'content_type': contentType,
       };
 }
 
@@ -90,6 +102,11 @@ class EmbedFooter {
   EmbedFooter.fromJson(Map<String, dynamic> j)
       : text = j['text'] as String,
         iconUrl = j['icon_url'] as String?;
+
+  Map<String, dynamic> toJson() => {
+        'text': text,
+        if (iconUrl != null) 'icon_url': iconUrl,
+      };
 }
 
 class EmbedAuthor {
@@ -103,6 +120,12 @@ class EmbedAuthor {
       : name = j['name'] as String,
         url = j['url'] as String?,
         iconUrl = j['icon_url'] as String?;
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        if (url != null) 'url': url,
+        if (iconUrl != null) 'icon_url': iconUrl,
+      };
 }
 
 class EmbedField {
@@ -117,6 +140,9 @@ class EmbedField {
       : name = j['name'] as String,
         value = j['value'] as String,
         inline = j['inline'] as bool? ?? false;
+
+  Map<String, dynamic> toJson() =>
+      {'name': name, 'value': value, 'inline': inline};
 }
 
 class EmbedColor {
@@ -130,10 +156,27 @@ class EmbedColor {
       : colorFrom = j['color_from'] as int?,
         colorVia = j['color_via'] as int?,
         colorTo = j['color_to'] as int?;
+
+  Map<String, dynamic> toJson() => {
+        if (colorFrom != null) 'color_from': colorFrom,
+        if (colorVia != null) 'color_via': colorVia,
+        if (colorTo != null) 'color_to': colorTo,
+      };
+}
+
+/// The values [Embed.type] takes.
+abstract final class EmbedType {
+  static const rich = 'rich';
+  static const video = 'video';
+  static const gifv = 'gifv';
+  static const image = 'image';
+  static const audio = 'audio';
+  static const sticker = 'sticker';
 }
 
 class Embed {
   final String? type;
+  final String? provider;
   final String? title;
   final String? description;
   final String? url;
@@ -148,6 +191,7 @@ class Embed {
 
   const Embed({
     this.type,
+    this.provider,
     this.title,
     this.description,
     this.url,
@@ -163,6 +207,7 @@ class Embed {
 
   Embed.fromJson(Map<String, dynamic> j)
       : type = j['type'] as String?,
+        provider = j['provider'] as String?,
         title = j['title'] as String?,
         description = j['description'] as String?,
         url = j['url'] as String?,
@@ -177,48 +222,74 @@ class Embed {
         fields = (j['fields'] as List<dynamic>?)
             ?.map((e) => EmbedField.fromJson(e as Map<String, dynamic>))
             .toList();
+
+  Map<String, dynamic> toJson() => {
+        if (type != null) 'type': type,
+        if (provider != null) 'provider': provider,
+        if (title != null) 'title': title,
+        if (description != null) 'description': description,
+        if (url != null) 'url': url,
+        if (timestamp != null) 'timestamp': timestamp,
+        if (color != null) 'color': color!.toJson(),
+        if (footer != null) 'footer': footer!.toJson(),
+        if (image != null) 'image': image!.toJson(),
+        if (thumbnail != null) 'thumbnail': thumbnail!.toJson(),
+        if (video != null) 'video': video!.toJson(),
+        if (author != null) 'author': author!.toJson(),
+        if (fields != null) 'fields': fields!.map((f) => f.toJson()).toList(),
+      };
 }
 
 // ---------------------------------------------------------------------------
 // Attachment
 // ---------------------------------------------------------------------------
 
+/// A file: one sent with a message, or one of a user's or a space's files
+/// (their attachment lists).
 class Attachment {
   final String id;
-  final String messageId;
+  final String? messageId;
   final String filename;
   final String contentType;
   final int sizeBytes;
   final int? width;
   final int? height;
   final DateTime createdAt;
+  final DateTime? deletedAt;
   final bool? deleted;
   final bool? pending;
+  final String? url;
 
   const Attachment({
     required this.id,
-    required this.messageId,
+    this.messageId,
     required this.filename,
     required this.contentType,
     required this.sizeBytes,
     this.width,
     this.height,
     required this.createdAt,
+    this.deletedAt,
     this.deleted,
     this.pending,
+    this.url,
   });
 
   Attachment.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
-        messageId = j['message_id'] as String,
+        messageId = j['message_id'] as String?,
         filename = j['filename'] as String,
         contentType = j['content_type'] as String,
         sizeBytes = j['size_bytes'] as int,
         width = j['width'] as int?,
         height = j['height'] as int?,
         createdAt = DateTime.parse(j['created_at'] as String),
+        deletedAt = j['deleted_at'] != null
+            ? DateTime.parse(j['deleted_at'] as String)
+            : null,
         deleted = j['deleted'] as bool?,
-        pending = j['pending'] as bool?;
+        pending = j['pending'] as bool?,
+        url = j['url'] as String?;
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +334,6 @@ class MessageReference {
 }
 
 class ReferencedMessage {
-  final String id;
   final int? type;
   final String? messageId;
   final String? roomId;
@@ -275,7 +345,6 @@ class ReferencedMessage {
   final DateTime? createdAt;
 
   const ReferencedMessage({
-    required this.id,
     this.type,
     this.messageId,
     this.roomId,
@@ -288,8 +357,7 @@ class ReferencedMessage {
   });
 
   ReferencedMessage.fromJson(Map<String, dynamic> j)
-      : id = j['id'] as String,
-        type = j['type'] as int?,
+      : type = j['type'] as int?,
         messageId = j['message_id'] as String?,
         roomId = j['room_id'] as String?,
         spaceId = j['space_id'] as String?,
@@ -321,10 +389,79 @@ class MessageReaction {
         users = (j['users'] as List<dynamic>).map((e) => e as String).toList();
 }
 
+/// The bits of [GatewayMessage.flags].
+abstract final class MessageFlag {
+  /// A bot's deferred response to an interaction, which it completes by
+  /// editing the message.
+  static const loading = 1 << 7;
+
+  /// The components are the whole message: it has no content, embeds or
+  /// files of its own.
+  static const isComponentsV2 = 1 << 15;
+}
+
+/// What a message a bot sends for an interaction says about it.
+class InteractionMetadata {
+  final String id;
+
+  /// 2 for a command, 3 for a component.
+  final int type;
+
+  /// Who used it, as they were when the message was made.
+  final InteractionUser user;
+
+  /// The message whose component was used, for a component's interaction.
+  final String? interactedMessageId;
+
+  /// The interaction's first response, on its follow-ups.
+  final String? originalResponseMessageId;
+
+  /// The command's name, for a command's interaction.
+  final String? name;
+
+  const InteractionMetadata({
+    required this.id,
+    required this.type,
+    required this.user,
+    this.interactedMessageId,
+    this.originalResponseMessageId,
+    this.name,
+  });
+
+  InteractionMetadata.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String,
+        type = j['type'] as int,
+        user = InteractionUser.fromJson(j['user'] as Map<String, dynamic>),
+        interactedMessageId = j['interacted_message_id'] as String?,
+        originalResponseMessageId =
+            j['original_response_message_id'] as String?,
+        name = j['name'] as String?;
+}
+
+/// The short form of a user that interactions and command lists carry.
+class InteractionUser {
+  final String id;
+  final String username;
+  final String? alias;
+  final String? avatar;
+
+  const InteractionUser(
+      {required this.id, required this.username, this.alias, this.avatar});
+
+  InteractionUser.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String,
+        username = j['username'] as String,
+        alias = j['alias'] as String?,
+        avatar = j['avatar'] as String?;
+}
+
 class GatewayMessage {
   final String id;
   final String roomId;
-  final String authorId;
+
+  /// Null for webhook messages, which carry [webhookId] instead.
+  final String? authorId;
+  final String? webhookId;
   final String? content;
   final MessageType type;
   final DateTime createdAt;
@@ -340,10 +477,24 @@ class GatewayMessage {
   final List<MessageReaction>? reactions;
   final String? stickerAttachmentId;
 
+  /// When it was pinned; null while it isn't. Events that create or edit a
+  /// message leave it out.
+  final DateTime? pinnedAt;
+
+  /// [MessageFlag] bits.
+  final int flags;
+
+  /// The message's components, as the API sends them.
+  final List<Map<String, dynamic>>? components;
+
+  /// Set on the messages a bot sends for an interaction.
+  final InteractionMetadata? interactionMetadata;
+
   const GatewayMessage({
     required this.id,
     required this.roomId,
-    required this.authorId,
+    this.authorId,
+    this.webhookId,
     this.content,
     required this.type,
     required this.createdAt,
@@ -358,12 +509,17 @@ class GatewayMessage {
     this.attachments,
     this.reactions,
     this.stickerAttachmentId,
+    this.pinnedAt,
+    this.flags = 0,
+    this.components,
+    this.interactionMetadata,
   });
 
   GatewayMessage.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
         roomId = j['room_id'] as String,
-        authorId = j['author_id'] as String,
+        authorId = j['author_id'] as String?,
+        webhookId = j['webhook_id'] as String?,
         content = j['content'] as String?,
         type = MessageType.fromInt(j['type'] as int? ?? 0),
         createdAt = DateTime.parse(j['created_at'] as String),
@@ -390,8 +546,20 @@ class GatewayMessage {
         reactions = (j['reactions'] as List<dynamic>?)
             ?.map((e) => MessageReaction.fromJson(e as Map<String, dynamic>))
             .toList(),
-        stickerAttachmentId = j['sticker_attachment_id'] as String?;
+        stickerAttachmentId = j['sticker_attachment_id'] as String?,
+        pinnedAt = _parseDate(j['pinned_at']),
+        flags = j['flags'] as int? ?? 0,
+        components = (j['components'] as List<dynamic>?)
+            ?.map((e) => e as Map<String, dynamic>)
+            .toList(),
+        interactionMetadata = j['interaction_metadata'] != null
+            ? InteractionMetadata.fromJson(
+                j['interaction_metadata'] as Map<String, dynamic>)
+            : null;
 }
+
+DateTime? _parseDate(Object? v) =>
+    v != null ? DateTime.parse(v as String) : null;
 
 class Message {
   final String id;
@@ -467,6 +635,9 @@ class GatewayUser {
   final String? avatar;
   final String? banner;
   final String custom;
+  final int flags;
+  final int badges;
+  final bool isBot;
   final UserStatus statusId;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -480,6 +651,9 @@ class GatewayUser {
     this.avatar,
     this.banner,
     required this.custom,
+    this.flags = 0,
+    this.badges = 0,
+    this.isBot = false,
     required this.statusId,
     required this.createdAt,
     required this.updatedAt,
@@ -494,6 +668,9 @@ class GatewayUser {
         avatar = j['avatar'] as String?,
         banner = j['banner'] as String?,
         custom = j['custom'] as String? ?? '',
+        flags = j['flags'] as int? ?? 0,
+        badges = j['badges'] as int? ?? 0,
+        isBot = j['is_bot'] as bool? ?? false,
         statusId = UserStatus.fromInt(j['status_id'] as int? ?? 0),
         createdAt = DateTime.parse(j['created_at'] as String),
         updatedAt = DateTime.parse(j['updated_at'] as String),
@@ -572,7 +749,7 @@ class GatewayRoomOverwrite {
 
 class GatewayRoom {
   final String id;
-  final String spaceId;
+  final String? spaceId;
   final String? parentId;
   final RoomType type;
   final String name;
@@ -585,7 +762,7 @@ class GatewayRoom {
 
   const GatewayRoom({
     required this.id,
-    required this.spaceId,
+    this.spaceId,
     this.parentId,
     required this.type,
     required this.name,
@@ -599,7 +776,7 @@ class GatewayRoom {
 
   GatewayRoom.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
-        spaceId = j['space_id'] as String,
+        spaceId = j['space_id'] as String?,
         parentId = j['parent_id'] as String?,
         type = RoomType.fromInt(j['type'] as int),
         name = j['name'] as String,
@@ -706,6 +883,7 @@ class GatewaySpace {
   final String name;
   final String? description;
   final String? banner;
+  final String? icon;
   final String ownerId;
   final String? locale;
   final GatewayMember? member;
@@ -725,6 +903,7 @@ class GatewaySpace {
     required this.name,
     this.description,
     this.banner,
+    this.icon,
     required this.ownerId,
     this.locale,
     this.member,
@@ -745,6 +924,7 @@ class GatewaySpace {
         name = j['name'] as String,
         description = j['description'] as String?,
         banner = j['banner'] as String?,
+        icon = j['icon'] as String?,
         ownerId = j['owner_id'] as String,
         locale = j['locale'] as String?,
         member = j['member'] != null
@@ -849,88 +1029,165 @@ class SpaceSticker {
 // Conversations / DMs
 // ---------------------------------------------------------------------------
 
-class Conversation {
+/// The values of [Conversation.type].
+final class ConversationType extends EnumLike<int, ConversationType> {
+  static const dm = ConversationType(1);
+  static const group = ConversationType(2);
+  const ConversationType(super.value);
+}
+
+/// The short form of a user that conversation members and DMs carry.
+class ConversationUser {
   final String id;
-  final String? name;
-  final List<String> memberIds;
+  final String username;
+  final String? alias;
+  final String? avatar;
+  final String? banner;
+  final int? badges;
+  final bool isBot;
+
+  const ConversationUser({
+    required this.id,
+    required this.username,
+    this.alias,
+    this.avatar,
+    this.banner,
+    this.badges,
+    this.isBot = false,
+  });
+
+  ConversationUser.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String,
+        username = j['username'] as String,
+        alias = j['alias'] as String?,
+        avatar = j['avatar'] as String?,
+        banner = j['banner'] as String?,
+        badges = j['badges'] as int?,
+        isBot = j['is_bot'] as bool? ?? false;
+}
+
+class ConversationMember {
+  final String id;
+  final String conversationId;
+  final String userId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  const Conversation({
+  /// Null in the member that adding one answers when the conversation's list
+  /// doesn't have them yet.
+  final ConversationUser? user;
+
+  const ConversationMember({
     required this.id,
-    this.name,
-    required this.memberIds,
+    required this.conversationId,
+    required this.userId,
     required this.createdAt,
     required this.updatedAt,
+    this.user,
+  });
+
+  ConversationMember.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String,
+        conversationId = j['conversation_id'] as String,
+        userId = j['user_id'] as String,
+        createdAt = DateTime.parse(j['created_at'] as String),
+        updatedAt = DateTime.parse(j['updated_at'] as String),
+        user = j['user'] != null
+            ? ConversationUser.fromJson(j['user'] as Map<String, dynamic>)
+            : null;
+}
+
+class Conversation {
+  final String id;
+  final ConversationType type;
+  final String? name;
+  final String ownerId;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final DateTime? deletedAt;
+  final List<ConversationMember> members;
+
+  const Conversation({
+    required this.id,
+    required this.type,
+    this.name,
+    required this.ownerId,
+    required this.createdAt,
+    required this.updatedAt,
+    this.deletedAt,
+    required this.members,
   });
 
   Conversation.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
+        type = ConversationType(j['type'] as int),
         name = j['name'] as String?,
-        memberIds = (j['member_ids'] as List<dynamic>? ?? [])
-            .map((e) => e as String)
-            .toList(),
+        ownerId = j['owner_id'] as String,
         createdAt = DateTime.parse(j['created_at'] as String),
-        updatedAt = DateTime.parse(j['updated_at'] as String);
+        updatedAt = DateTime.parse(j['updated_at'] as String),
+        deletedAt = _parseDate(j['deleted_at']),
+        members = (j['members'] as List<dynamic>? ?? [])
+            .map((e) => ConversationMember.fromJson(e as Map<String, dynamic>))
+            .toList();
 }
 
 class DirectMessage {
   final String id;
-  final String conversationId;
+  final String? conversationId;
+
+  /// Always set for a DM: the API's type allows null only because webhook
+  /// room messages share the table.
   final String authorId;
   final String? content;
   final MessageType type;
   final DateTime createdAt;
   final DateTime updatedAt;
-  final DateTime? deletedAt;
   final String? nonce;
-  final GatewayUser? user;
+  final ConversationUser? user;
   final ReferencedMessage? referencedMessage;
-  final String? refMessageId;
   final List<Embed>? embeds;
   final List<Attachment>? attachments;
   final List<MessageReaction>? reactions;
   final String? stickerAttachmentId;
 
+  /// When it was pinned; null while it isn't. Events that create or edit a
+  /// message leave it out.
+  final DateTime? pinnedAt;
+
   const DirectMessage({
     required this.id,
-    required this.conversationId,
+    this.conversationId,
     required this.authorId,
     this.content,
     required this.type,
     required this.createdAt,
     required this.updatedAt,
-    this.deletedAt,
     this.nonce,
     this.user,
     this.referencedMessage,
-    this.refMessageId,
     this.embeds,
     this.attachments,
     this.reactions,
     this.stickerAttachmentId,
+    this.pinnedAt,
   });
 
   DirectMessage.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
-        conversationId = j['conversation_id'] as String,
+        conversationId = j['conversation_id'] as String?,
         authorId = j['author_id'] as String,
         content = j['content'] as String?,
         type = MessageType.fromInt(j['type'] as int? ?? 0),
         createdAt = DateTime.parse(j['created_at'] as String),
         updatedAt = DateTime.parse(j['updated_at'] as String),
-        deletedAt = j['deleted_at'] != null
-            ? DateTime.parse(j['deleted_at'] as String)
-            : null,
         nonce = j['nonce'] as String?,
         user = j['user'] != null
-            ? GatewayUser.fromJson(j['user'] as Map<String, dynamic>)
+            ? ConversationUser.fromJson(j['user'] as Map<String, dynamic>)
             : null,
         referencedMessage = j['referenced_message'] != null
             ? ReferencedMessage.fromJson(
                 j['referenced_message'] as Map<String, dynamic>)
             : null,
-        refMessageId = j['ref_message_id'] as String?,
         embeds = (j['embeds'] as List<dynamic>?)
             ?.map((e) => Embed.fromJson(e as Map<String, dynamic>))
             .toList(),
@@ -940,61 +1197,159 @@ class DirectMessage {
         reactions = (j['reactions'] as List<dynamic>?)
             ?.map((e) => MessageReaction.fromJson(e as Map<String, dynamic>))
             .toList(),
-        stickerAttachmentId = j['sticker_attachment_id'] as String?;
+        stickerAttachmentId = j['sticker_attachment_id'] as String?,
+        pinnedAt = _parseDate(j['pinned_at']);
 }
 
 // ---------------------------------------------------------------------------
 // Friends
 // ---------------------------------------------------------------------------
 
+/// A friend request, with the other user's details. The request that
+/// `sendFriendRequest` answers is the bare request, without them.
 class FriendRequest {
   final String id;
   final String senderId;
-  final String receiverId;
+  final String recipientId;
   final DateTime createdAt;
+  final DateTime updatedAt;
+  final String? userUsername;
+  final String? userAlias;
+  final String? userAvatar;
 
   const FriendRequest({
     required this.id,
     required this.senderId,
-    required this.receiverId,
+    required this.recipientId,
     required this.createdAt,
+    required this.updatedAt,
+    this.userUsername,
+    this.userAlias,
+    this.userAvatar,
   });
 
   FriendRequest.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
         senderId = j['sender_id'] as String,
-        receiverId = j['receiver_id'] as String,
-        createdAt = DateTime.parse(j['created_at'] as String);
+        recipientId = j['recipient_id'] as String,
+        createdAt = DateTime.parse(j['created_at'] as String),
+        updatedAt = DateTime.parse(j['updated_at'] as String),
+        userUsername = j['user_username'] as String?,
+        userAlias = j['user_alias'] as String?,
+        userAvatar = j['user_avatar'] as String?;
 }
 
 class Friend {
   final String id;
-  final String userId;
-  final String friendId;
-  final DateTime createdAt;
+  final String requestId;
+  final String senderId;
+  final String recipientId;
+  final String userUsername;
+  final String? userAlias;
+  final String? userAvatar;
 
   const Friend({
     required this.id,
-    required this.userId,
-    required this.friendId,
-    required this.createdAt,
+    required this.requestId,
+    required this.senderId,
+    required this.recipientId,
+    required this.userUsername,
+    this.userAlias,
+    this.userAvatar,
   });
 
   Friend.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
-        userId = j['user_id'] as String,
-        friendId = j['friend_id'] as String,
-        createdAt = DateTime.parse(j['created_at'] as String);
+        requestId = j['request_id'] as String,
+        senderId = j['sender_id'] as String,
+        recipientId = j['recipient_id'] as String,
+        userUsername = j['user_username'] as String,
+        userAlias = j['user_alias'] as String?,
+        userAvatar = j['user_avatar'] as String?;
+}
+
+/// FRIEND_REQUEST_CREATE: the request, with its sender's details.
+class FriendRequestCreateEvent {
+  final String id;
+  final String senderId;
+  final String username;
+  final String? alias;
+  final String? avatar;
+
+  const FriendRequestCreateEvent({
+    required this.id,
+    required this.senderId,
+    required this.username,
+    this.alias,
+    this.avatar,
+  });
+
+  FriendRequestCreateEvent.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String,
+        senderId = j['sender_id'] as String,
+        username = j['username'] as String,
+        alias = j['alias'] as String?,
+        avatar = j['avatar'] as String?;
+}
+
+/// FRIEND_REQUEST_ACCEPT: the friendship the request made.
+class FriendRequestAcceptEvent {
+  final String id;
+  final String requestId;
+  final String senderId;
+  final String recipientId;
+  final GatewayUser? user;
+
+  const FriendRequestAcceptEvent({
+    required this.id,
+    required this.requestId,
+    required this.senderId,
+    required this.recipientId,
+    this.user,
+  });
+
+  FriendRequestAcceptEvent.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String,
+        requestId = j['request_id'] as String,
+        senderId = j['sender_id'] as String,
+        recipientId = j['recipient_id'] as String,
+        user = j['user'] != null
+            ? GatewayUser.fromJson(j['user'] as Map<String, dynamic>)
+            : null;
 }
 
 // ---------------------------------------------------------------------------
 // Gateway ready payload
 // ---------------------------------------------------------------------------
 
+/// A voice state in a conversation's call: it has no room.
+class CallVoiceState {
+  final String userId;
+  final bool muted;
+  final bool deafened;
+  final bool screenSharing;
+  final int version;
+
+  const CallVoiceState({
+    required this.userId,
+    this.muted = false,
+    this.deafened = false,
+    this.screenSharing = false,
+    this.version = 0,
+  });
+
+  CallVoiceState.fromJson(Map<String, dynamic> j)
+      : userId = j['user_id'] as String,
+        muted = j['muted'] as bool? ?? false,
+        deafened = j['deafened'] as bool? ?? false,
+        screenSharing = j['screen_sharing'] as bool? ?? false,
+        version = j['version'] as int? ?? 0;
+}
+
 class GatewayReadyActiveCall {
   final String conversationId;
   final String initiatorId;
-  final List<GatewayVoiceState>? voiceStates;
+  final List<CallVoiceState>? voiceStates;
 
   const GatewayReadyActiveCall({
     required this.conversationId,
@@ -1006,7 +1361,7 @@ class GatewayReadyActiveCall {
       : conversationId = j['conversation_id'] as String,
         initiatorId = j['initiator_id'] as String,
         voiceStates = (j['voice_states'] as List<dynamic>?)
-            ?.map((e) => GatewayVoiceState.fromJson(e as Map<String, dynamic>))
+            ?.map((e) => CallVoiceState.fromJson(e as Map<String, dynamic>))
             .toList();
 }
 
@@ -1200,13 +1555,27 @@ class VoiceStateEvent {
         screenSharing = j['screen_sharing'] as bool?;
 }
 
-class VoiceJoinedEvent {
-  final String userId;
+/// A WebRTC session description: an offer or an answer.
+class SessionDescription {
+  /// "offer", "pranswer", "answer" or "rollback".
+  final String type;
   final String sdp;
-  const VoiceJoinedEvent({required this.userId, required this.sdp});
-  VoiceJoinedEvent.fromJson(Map<String, dynamic> j)
-      : userId = j['user_id'] as String,
+  const SessionDescription({required this.type, required this.sdp});
+  SessionDescription.fromJson(Map<String, dynamic> j)
+      : type = j['type'] as String,
         sdp = j['sdp'] as String;
+}
+
+/// VOICE_JOINED: the gateway's answer to joining a voice room.
+class VoiceJoinedEvent {
+  final String roomId;
+  final SessionDescription? answer;
+  const VoiceJoinedEvent({required this.roomId, this.answer});
+  VoiceJoinedEvent.fromJson(Map<String, dynamic> j)
+      : roomId = j['room_id'] as String,
+        answer = j['answer'] != null
+            ? SessionDescription.fromJson(j['answer'] as Map<String, dynamic>)
+            : null;
 }
 
 class WebRTCEvent {
@@ -1235,13 +1604,15 @@ class RoleDeleteEvent {
 class MemberRoleEvent {
   final String memberId;
   final String roleId;
-  final String spaceId;
+
+  /// Null in MEMBER_ROLE_REMOVE, which doesn't carry it.
+  final String? spaceId;
   const MemberRoleEvent(
-      {required this.memberId, required this.roleId, required this.spaceId});
+      {required this.memberId, required this.roleId, this.spaceId});
   MemberRoleEvent.fromJson(Map<String, dynamic> j)
       : memberId = j['member_id'] as String,
         roleId = j['role_id'] as String,
-        spaceId = j['space_id'] as String;
+        spaceId = j['space_id'] as String?;
 }
 
 class SpaceMemberEvent {
@@ -1368,21 +1739,17 @@ class CallIncomingEvent {
   final String initiatorId;
   final String initiatorName;
   final String? initiatorAvatar;
-  final List<String> memberIds;
   const CallIncomingEvent({
     required this.conversationId,
     required this.initiatorId,
     required this.initiatorName,
     this.initiatorAvatar,
-    required this.memberIds,
   });
   CallIncomingEvent.fromJson(Map<String, dynamic> j)
       : conversationId = j['conversation_id'] as String,
         initiatorId = j['initiator_id'] as String,
         initiatorName = j['initiator_name'] as String,
-        initiatorAvatar = j['initiator_avatar'] as String?,
-        memberIds =
-            (j['member_ids'] as List<dynamic>).map((e) => e as String).toList();
+        initiatorAvatar = j['initiator_avatar'] as String?;
 }
 
 class CallResponseEvent {
@@ -1401,11 +1768,13 @@ class CallEndedEvent {
       : conversationId = j['conversation_id'] as String;
 }
 
+/// FRIEND_REQUEST_REJECT: the request, rejected by its recipient or cancelled
+/// by its sender.
 class FriendRequestRejectEvent {
-  final String requestId;
-  const FriendRequestRejectEvent({required this.requestId});
+  final String id;
+  const FriendRequestRejectEvent({required this.id});
   FriendRequestRejectEvent.fromJson(Map<String, dynamic> j)
-      : requestId = j['request_id'] as String;
+      : id = j['id'] as String;
 }
 
 class FriendRemoveEvent {
@@ -1485,57 +1854,56 @@ class DMMessageDeleteEvent {
         conversationId = j['conversation_id'] as String;
 }
 
+/// The user's own profile: the public user plus the fields hidden from
+/// everyone else. The API doesn't send the email.
 class UserMeResult {
   final String id;
   final String username;
-  final String email;
-  final String password;
-  final String? phone;
-
-  final bool? emailVerified;
+  final bool emailVerified;
   final String? alias;
+  final DateTime? birthdate;
+  final String? phone;
   final String? avatar;
   final String? banner;
   final String custom;
-  final UserStatus statusId;
+  final int flags;
+  final int badges;
+  final bool isBot;
   final DateTime createdAt;
   final DateTime updatedAt;
-  final DateTime? deletedAt;
 
   const UserMeResult({
     required this.id,
     required this.username,
-    required this.email,
-    required this.password,
-    this.phone,
-    this.emailVerified,
+    required this.emailVerified,
     this.alias,
+    this.birthdate,
+    this.phone,
     this.avatar,
     this.banner,
     required this.custom,
-    required this.statusId,
+    this.flags = 0,
+    this.badges = 0,
+    this.isBot = false,
     required this.createdAt,
     required this.updatedAt,
-    this.deletedAt,
   });
 
   UserMeResult.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
-        email = j['email'] as String,
-        password = j['password'] as String,
-        phone = j['phone'] as String?,
         username = j['username'] as String,
-        emailVerified = j['email_verified'] as bool?,
+        emailVerified = j['email_verified'] as bool? ?? false,
         alias = j['alias'] as String?,
+        birthdate = _parseDate(j['birthdate']),
+        phone = j['phone'] as String?,
         avatar = j['avatar'] as String?,
         banner = j['banner'] as String?,
         custom = j['custom'] as String? ?? '',
-        statusId = UserStatus.fromInt(j['status_id'] as int? ?? 0),
+        flags = j['flags'] as int? ?? 0,
+        badges = j['badges'] as int? ?? 0,
+        isBot = j['is_bot'] as bool? ?? false,
         createdAt = DateTime.parse(j['created_at'] as String),
-        updatedAt = DateTime.parse(j['updated_at'] as String),
-        deletedAt = j['deleted_at'] != null
-            ? DateTime.parse(j['deleted_at'] as String)
-            : null;
+        updatedAt = DateTime.parse(j['updated_at'] as String);
 }
 
 // ---------------------------------------------------------------------------
@@ -1732,12 +2100,12 @@ class ReactionRemovedEvent extends GatewayEventPayload {
 }
 
 class FriendRequestCreatedEvent extends GatewayEventPayload {
-  final FriendRequest data;
+  final FriendRequestCreateEvent data;
   const FriendRequestCreatedEvent(this.data);
 }
 
 class FriendRequestAcceptedEvent extends GatewayEventPayload {
-  final Friend data;
+  final FriendRequestAcceptEvent data;
   const FriendRequestAcceptedEvent(this.data);
 }
 
