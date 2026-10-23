@@ -1,18 +1,44 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
-import 'package:web_socket_client/web_socket_client.dart' as ws;
 import 'package:duvet_client/http/rest.dart' show RestClient;
 import 'package:duvet_client/http/router.dart' show ApiRouter;
 import 'package:duvet_client/models/types.dart';
 import 'package:duvet_client/errors.dart';
+
+/// How long opening a socket to the gateway may take before the attempt is
+/// dropped: 15 seconds.
+const defaultConnectTimeout = Duration(seconds: 15);
+
+/// Where a gateway connection is.
+enum GatewayConnectionState {
+  /// Opening the first socket.
+  connecting,
+
+  /// A socket is open and the client identified on it; READY follows.
+  connected,
+
+  /// The socket closed, or couldn't open, and the client is opening another.
+  reconnecting,
+
+  /// No socket, and none opening: before connecting, after a
+  /// [GatewayClient.connect] that failed with nothing trying again, or once
+  /// destroyed.
+  disconnected,
+}
 
 /// A single WebSocket connection to the gateway.
 ///
 /// Owns its own heartbeat loop, reconnect logic, and sequence tracking.
 /// All inbound events are pushed onto [events]; callers should not close
 /// this stream directly — call [destroy] instead.
+///
+/// It keeps one socket at a time: a new one opens only once the last is
+/// closed, and opening one takes [connectTimeout] at most. When the socket
+/// drops, or stops answering heartbeats, it opens a new one and identifies
+/// again, until [destroy].
 ///
 /// Parse or protocol errors are pushed to [errors]. Both streams remain
 /// open across reconnect cycles and only close when [destroy] is called.
@@ -25,6 +51,10 @@ class GatewayClient {
 
   final int shardId;
   final int shardCount;
+
+  /// How long opening a socket may take before the attempt fails with a
+  /// [TimeoutException] ([defaultConnectTimeout]).
+  final Duration connectTimeout;
 
   /// Broadcast stream of every decoded [GatewayEventPayload] received from
   /// the gateway, including the initial [ReadyEvent].
@@ -41,24 +71,42 @@ class GatewayClient {
   /// when [destroy] is called.
   Stream<DuvetException> get errors => _errorController.stream;
 
-  late ws.WebSocket _socket;
+  /// Broadcast stream of the connection's state as it changes.
+  Stream<GatewayConnectionState> get onConnectionState =>
+      _stateController.stream;
 
-  bool _connected = false;
-  bool _awaitingHeartbeatAck = false;
+  /// The connection's state now.
+  GatewayConnectionState get connectionState => _state;
+
+  // The open socket, if any: the only one this client keeps.
+  WebSocket? _socket;
+
+  // The HTTP client opening the next socket, closed to give up on it.
+  HttpClient? _opening;
+
+  // Grows with each connect: a socket that opens for an attempt that isn't the
+  // last one is closed at once.
+  int _attempt = 0;
+
+  GatewayConnectionState _state = GatewayConnectionState.disconnected;
   bool _destroyed = false;
+  bool _awaitingHeartbeatAck = false;
   int _reconnectAttempts = 0;
   int _lastSeq = 0;
 
-  StreamSubscription<dynamic>? _heartbeatSub;
+  Timer? _heartbeat;
   Timer? _heartbeatAckTimer;
-  StreamSubscription<dynamic>? _messageSub;
-  StreamSubscription<dynamic>? _connectionSub;
+  Future<void>? _reconnecting;
+  Completer<void>? _reconnectWait;
 
   final StreamController<GatewayEventPayload> _eventController =
       StreamController<GatewayEventPayload>.broadcast();
 
   final StreamController<DuvetException> _errorController =
       StreamController<DuvetException>.broadcast();
+
+  final StreamController<GatewayConnectionState> _stateController =
+      StreamController<GatewayConnectionState>.broadcast();
 
   static const Duration _heartbeatInterval = Duration(seconds: 45);
   static const Duration _heartbeatAckTimeout = Duration(seconds: 15);
@@ -75,126 +123,264 @@ class GatewayClient {
     this.shardCount = 1,
     void Function(String msg)? log,
     ApiRouter? router,
+    this.connectTimeout = defaultConnectTimeout,
   })  : _log = log ?? ((msg) => print('[gateway:shard-$shardId] $msg')),
         router = router ?? const ApiRouter();
 
   String get token => api.token;
-  String get streamUrl => 'wss://$_wsHost/gateway?token=$token';
 
+  /// The gateway's URL, with the access token in its query, as the gateway
+  /// reads it. Don't log it.
+  String get streamUrl =>
+      Uri.parse('${router.secure ? 'wss' : 'ws'}://$_wsHost/gateway')
+          .replace(queryParameters: {'token': token}).toString();
+
+  /// Completes with true once a socket is open (at once if one is), or with
+  /// false if the client is destroyed first.
   Future<bool> waitForConnection() async {
-    await _socket.connection.firstWhere((s) => s is ws.Connected);
-    return true;
+    if (_state == GatewayConnectionState.connected) return true;
+    if (_destroyed) return false;
+    final state = await onConnectionState.firstWhere(
+        (s) =>
+            s == GatewayConnectionState.connected ||
+            s == GatewayConnectionState.disconnected,
+        orElse: () => GatewayConnectionState.disconnected);
+    return state == GatewayConnectionState.connected;
   }
 
+  /// Opens a socket and identifies on it, after closing the one open before.
+  ///
+  /// Throws when the socket doesn't open: a [TimeoutException] after
+  /// [connectTimeout], or the error that stopped it; [reconnect] keeps trying.
+  /// Throws a [StateError] once the client is destroyed.
   Future<void> connect() async {
     if (_destroyed) {
       throw StateError('Shard $shardId is destroyed — cannot connect.');
     }
+    final attempt = ++_attempt;
+    _closeSocket();
+    if (_state != GatewayConnectionState.reconnecting) {
+      _setState(GatewayConnectionState.connecting);
+    }
 
     final uri = Uri.parse(streamUrl);
-    _log('connecting to $uri');
+    // Not the URL itself: its query holds the token.
+    _log('connecting to ${uri.scheme}://${uri.authority}${uri.path}');
 
-    _socket = ws.WebSocket(uri, headers: api.authHeaders);
+    final http = _opening = HttpClient();
+    final opening = WebSocket.connect(uri.toString(),
+        headers: api.authHeaders, customClient: http);
+    final WebSocket socket;
+    try {
+      socket = await opening.timeout(connectTimeout);
+    } catch (e, st) {
+      // Gives up on the handshake; a socket that opens anyway is closed.
+      http.close(force: true);
+      opening.then(_discard, onError: (Object _) {});
+      if (_destroyed) {
+        throw StateError('Shard $shardId was destroyed while connecting.');
+      }
+      // Unless [reconnect] is trying, nothing is.
+      if (_reconnecting == null) {
+        _setState(GatewayConnectionState.disconnected);
+      }
+      Error.throwWithStackTrace(_masked(e), st);
+    } finally {
+      if (identical(_opening, http)) _opening = null;
+    }
+    // The socket is the client's now, not the HTTP client's.
+    http.close();
 
-    _connected = await waitForConnection();
+    if (_destroyed) {
+      _discard(socket);
+      throw StateError('Shard $shardId was destroyed while connecting.');
+    }
+    if (attempt != _attempt) {
+      // Another attempt started meanwhile: that one's socket is the one kept.
+      _discard(socket);
+      return;
+    }
+
+    _socket = socket;
     _reconnectAttempts = 0;
-    _log('connected');
-
-    _connectionSub?.cancel();
-    _connectionSub = _socket.connection.listen(_onConnectionState);
-
+    socket.listen(
+      (raw) {
+        if (identical(socket, _socket)) _onMessage(raw);
+      },
+      onError: (Object e) {
+        if (identical(socket, _socket)) _log('socket error: ${_mask('$e')}');
+      },
+      onDone: () {
+        if (identical(socket, _socket)) {
+          _dropped('socket closed (${socket.closeCode} ${socket.closeReason})');
+        }
+      },
+      cancelOnError: false,
+    );
     _identify();
-
-    _messageSub?.cancel();
-    _messageSub = _socket.messages.listen(_onMessage);
-
     _startHeartbeat();
+    _setState(GatewayConnectionState.connected);
+    _log('connected');
   }
 
-  Future<void> reconnect() async {
-    if (_destroyed) return;
+  /// Closes the socket, if one is open, and opens a new one: after a delay
+  /// that grows with each failed attempt, it tries until a socket opens or the
+  /// client is destroyed. Calls while it's trying share that attempt.
+  Future<void> reconnect() {
+    if (_destroyed) return Future.value();
+    return _reconnecting ??= _reconnectLoop();
+  }
 
-    await _cleanup(cancelHeartbeat: true);
-
-    final delay = _reconnectDelay();
-    _log('reconnecting in ${delay.inMilliseconds}ms '
-        '(attempt ${_reconnectAttempts + 1})');
-    await Future.delayed(delay);
-    _reconnectAttempts++;
-
+  Future<void> _reconnectLoop() async {
     try {
-      await connect();
-    } catch (e) {
-      _log('reconnect failed: $e');
-      unawaited(reconnect());
+      while (!_destroyed) {
+        _closeSocket();
+        _setState(GatewayConnectionState.reconnecting);
+        final delay = _reconnectDelay();
+        _log('reconnecting in ${delay.inMilliseconds}ms '
+            '(attempt ${_reconnectAttempts + 1})');
+        // A wait destroy() can end early.
+        final wait = _reconnectWait = Completer<void>();
+        final timer = Timer(delay, () {
+          if (!wait.isCompleted) wait.complete();
+        });
+        await wait.future;
+        timer.cancel();
+        if (_destroyed) return;
+        _reconnectAttempts++;
+        try {
+          await connect();
+          return;
+        } catch (e) {
+          if (_destroyed) return;
+          _log('reconnect failed: $e');
+        }
+      }
+    } finally {
+      // At once, so a socket that drops right after this one opened gets a
+      // loop of its own.
+      _reconnecting = null;
     }
+  }
+
+  // The socket closed, or stopped answering: a new one opens.
+  void _dropped(String why) {
+    _log(why);
+    _closeSocket();
+    if (!_destroyed) unawaited(reconnect());
   }
 
   void _closeSocket() {
-    if (_connected) {
-      _socket.close();
-      _connected = false;
-      return;
-    }
-    _log('warning: socket already closed, did nothing');
+    _stopHeartbeat();
+    final socket = _socket;
+    if (socket == null) return;
+    _socket = null;
+    _discard(socket);
   }
 
-  /// Permanently shuts down this client. The [events] and [errors] streams
-  /// are closed and the underlying socket is disconnected.
-  /// Do not reuse after calling this.
+  void _discard(WebSocket socket) {
+    socket.close(WebSocketStatus.normalClosure).then((_) {},
+        onError: (Object e) => _log('error closing a socket: ${_mask('$e')}'));
+  }
+
+  // [text] with the token masked.
+  String _mask(String text) {
+    final t = token;
+    if (t.isEmpty) return text;
+    return text
+        .replaceAll(Uri.encodeQueryComponent(t), '***')
+        .replaceAll(t, '***');
+  }
+
+  // [e] with the token masked: a failed handshake's error carries the URL,
+  // query and all.
+  Object _masked(Object e) => switch (e) {
+        WebSocketException(:final message) =>
+          WebSocketException(_mask(message)),
+        HttpException(:final message, :final uri) => HttpException(
+            _mask(message),
+            uri: uri == null ? null : Uri.parse(_mask('$uri'))),
+        _ => e,
+      };
+
+  /// Permanently shuts down this client. The [events], [errors] and
+  /// [onConnectionState] streams are closed and the socket is disconnected;
+  /// no other one opens. Do not reuse after calling this.
   void destroy() {
+    if (_destroyed) return;
     _destroyed = true;
-    _cleanup(cancelHeartbeat: true);
+    _attempt++;
+    final wait = _reconnectWait;
+    if (wait != null && !wait.isCompleted) wait.complete();
+    _opening?.close(force: true);
     _closeSocket();
+    _setState(GatewayConnectionState.disconnected);
     _eventController.close();
+    _errorController.close();
+    _stateController.close();
     _log('destroyed');
   }
 
   /// Sends an arbitrary event message to the gateway.
   ///
   /// Equivalent to the TypeScript `sendEventMessage(type, data)` helper.
-  /// Silently drops the message (with a log warning) when the socket is not
-  /// in the [ws.Connected] state so callers do not need to guard against
-  /// transient connection races themselves.
+  /// Silently drops the message (with a log warning) when no socket is open,
+  /// so callers do not need to guard against transient connection races
+  /// themselves.
   ///
   /// ```dart
   /// client.sendMessage('join_voice', {'room_id': roomId});
   /// client.sendMessage('WEBRTC_ICE_CANDIDATE', {'candidate': '...', ...});
   /// ```
   void sendMessage(String type, Map<String, dynamic> data) {
-    if (_socket.connection.state is ws.Connected) {
-      _socket.send(jsonEncode({'type': type, 'data': data}));
-    } else {
-      _log('cannot send "$type" – socket not open '
-          '(state: ${_socket.connection.state})');
+    if (!_send({'type': type, 'data': data})) {
+      _log('cannot send "$type" – socket not open (state: ${_state.name})');
     }
   }
 
+  // Whether the message went out on the open socket.
+  bool _send(Map<String, dynamic> message) {
+    final socket = _socket;
+    if (socket == null || socket.readyState != WebSocket.open) return false;
+    socket.add(jsonEncode(message));
+    return true;
+  }
+
+  void _setState(GatewayConnectionState state) {
+    if (state == _state) return;
+    _state = state;
+    _log('state: ${state.name}');
+    if (!_stateController.isClosed) _stateController.add(state);
+  }
+
   void _startHeartbeat() {
-    _heartbeatSub?.cancel();
-    _heartbeatSub =
-        Stream.periodic(_heartbeatInterval).listen((_) => _sendHeartbeat());
+    _stopHeartbeat();
+    _heartbeat = Timer.periodic(_heartbeatInterval, (_) => _sendHeartbeat());
+  }
+
+  void _stopHeartbeat() {
+    _heartbeat?.cancel();
+    _heartbeat = null;
+    _heartbeatAckTimer?.cancel();
+    _heartbeatAckTimer = null;
+    _awaitingHeartbeatAck = false;
   }
 
   void _sendHeartbeat() {
-    if (_socket.connection.state is! ws.Connected) return;
+    if (_socket == null) return;
 
     if (_awaitingHeartbeatAck) {
-      _log('missed heartbeat ack – closing');
-      _closeSocket();
+      _dropped('missed heartbeat ack – closing');
       return;
     }
 
     _awaitingHeartbeatAck = true;
     _log('♥ heartbeat');
-    _socket.send(jsonEncode({'type': 'heartbeat', 'data': {}}));
+    _send({'type': 'heartbeat', 'data': <String, dynamic>{}});
 
     _heartbeatAckTimer?.cancel();
     _heartbeatAckTimer = Timer(_heartbeatAckTimeout, () {
-      if (_awaitingHeartbeatAck) {
-        _log('heartbeat ack timeout – closing');
-        _closeSocket();
-      }
+      if (_awaitingHeartbeatAck) _dropped('heartbeat ack timeout – closing');
     });
   }
 
@@ -209,7 +395,7 @@ class GatewayClient {
       'token': token,
       if (_lastSeq > 0) 'last_seq': _lastSeq,
     };
-    _socket.send(jsonEncode({'type': 'identify', 'data': data}));
+    _send({'type': 'identify', 'data': data});
     _log('identify sent (shard=$shardId/$shardCount, seq=$_lastSeq)');
   }
 
@@ -248,35 +434,10 @@ class GatewayClient {
     }
   }
 
-  void _onConnectionState(ws.ConnectionState state) {
-    _log('state: $state');
-    if (state is ws.Disconnected || state is ws.Reconnecting) {
-      if (!_destroyed) {
-        _cleanup(cancelHeartbeat: true);
-        unawaited(reconnect());
-      }
-    }
-  }
-
   Duration _reconnectDelay() {
     final jitter = Random(token.hashCode).nextInt(500);
     final base = min(500 * pow(2, _reconnectAttempts).toInt(),
         _maxReconnectDelay.inMilliseconds);
     return Duration(milliseconds: base + jitter);
-  }
-
-  Future<void> _cleanup({bool cancelHeartbeat = false}) async {
-    _messageSub?.cancel();
-    _messageSub = null;
-    _connectionSub?.cancel();
-    _connectionSub = null;
-
-    if (cancelHeartbeat) {
-      _heartbeatSub?.cancel();
-      _heartbeatSub = null;
-      _heartbeatAckTimer?.cancel();
-      _heartbeatAckTimer = null;
-      _awaitingHeartbeatAck = false;
-    }
   }
 }

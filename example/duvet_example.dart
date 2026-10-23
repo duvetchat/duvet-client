@@ -23,9 +23,9 @@ Future<void> main(List<String> arguments) async {
 
   final api = RestClient(http.Client());
 
-  // 1. Sign in
-  final signIn = await api.logIn(arguments[0], arguments[1]);
-  defaultLog(0, 'Logged in with token: ${signIn.token}');
+  // 1. Sign in. The tokens are secrets: don't print them.
+  await api.logIn(arguments[0], arguments[1]);
+  defaultLog(0, 'Logged in');
 
   // 2. Create the manager
   final manager = GatewayManager(api, log: defaultLog);

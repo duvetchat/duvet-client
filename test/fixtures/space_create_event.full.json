@@ -67,12 +67,14 @@
       "muted": true,
       "deafened": true,
       "screen_sharing": true,
+      "camera": true,
       "version": 2
     }
   ],
   "activities": {
     "s-string": [
       {
+        "type": 2,
         "name": "s-string",
         "details": "s-string",
         "state": "s-string",

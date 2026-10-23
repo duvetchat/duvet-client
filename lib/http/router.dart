@@ -8,11 +8,16 @@ base class ApiRouter {
   final String base;
   final String cdn;
 
+  /// Whether the API and the gateway are reached over TLS (https, wss), as
+  /// the hosted ones are; a local server (e.g. `localhost:9876`) may not be.
+  final bool secure;
+
   const ApiRouter({
     this.api = 'api.duvet.chat',
     this.ws = 'ws.duvet.chat',
     this.base = 'duvet.chat',
     this.cdn = 'none',
+    this.secure = true,
   });
 
   String get apiBasePath => '/api';
@@ -29,7 +34,7 @@ base class ApiRouter {
   Uri urlFromPath(String path, {Map<String, dynamic>? query}) {
     // more aesthetic, less scalable, keep it
     final full = path.startsWith(apiBasePath) ? path : apiBasePath + path;
-    final url = Uri.parse('https://$api$full');
+    final url = Uri.parse('${secure ? 'https' : 'http'}://$api$full');
     final params = <String, dynamic>{
       for (final MapEntry(:key, :value) in (query ?? {}).entries)
         if (value != null)
