@@ -1421,6 +1421,10 @@ class GatewaySpaceCreatePayload {
   final String ownerId;
   final List<GatewayVoiceState>? voiceStates;
 
+  /// The members who aren't offline as the event is sent, by user ID: the
+  /// presence to start from, which USER_STATUS_UPDATE keeps current.
+  final Map<String, UserStatus> memberStatuses;
+
   const GatewaySpaceCreatePayload({
     required this.space,
     required this.rooms,
@@ -1429,6 +1433,7 @@ class GatewaySpaceCreatePayload {
     this.overwrites,
     required this.ownerId,
     this.voiceStates,
+    this.memberStatuses = const {},
   });
 
   GatewaySpaceCreatePayload.fromJson(Map<String, dynamic> j)
@@ -1451,7 +1456,9 @@ class GatewaySpaceCreatePayload {
         ownerId = j['owner_id'] as String,
         voiceStates = (j['voice_states'] as List<dynamic>?)
             ?.map((e) => GatewayVoiceState.fromJson(e as Map<String, dynamic>))
-            .toList();
+            .toList(),
+        memberStatuses = (j['member_statuses'] as Map<String, dynamic>? ?? {})
+            .map((k, v) => MapEntry(k, UserStatus.fromInt(v as int)));
 }
 
 // ---------------------------------------------------------------------------
@@ -1502,13 +1509,48 @@ class OverwriteDeleteEvent {
         targetId = j['target_id'] as String;
 }
 
+/// MENTION_CREATE: the user was mentioned in a message of a room.
 class MentionCreateEvent {
+  final String messageId;
   final String roomId;
+
+  /// Who wrote the message.
+  final String authorId;
+
+  /// Never set by the API: a conversation's mentions come as
+  /// DM_MENTION_CREATE ([DMMentionCreateEvent]).
   final String? conversationId;
-  const MentionCreateEvent({required this.roomId, this.conversationId});
+
+  const MentionCreateEvent({
+    required this.messageId,
+    required this.roomId,
+    required this.authorId,
+    this.conversationId,
+  });
   MentionCreateEvent.fromJson(Map<String, dynamic> j)
-      : roomId = j['room_id'] as String,
+      : messageId = j['message_id'] as String,
+        roomId = j['room_id'] as String,
+        authorId = j['author_id'] as String,
         conversationId = j['conversation_id'] as String?;
+}
+
+/// DM_MENTION_CREATE: the user was mentioned in a message of a conversation.
+class DMMentionCreateEvent {
+  final String messageId;
+  final String conversationId;
+
+  /// Who wrote the message.
+  final String authorId;
+
+  const DMMentionCreateEvent({
+    required this.messageId,
+    required this.conversationId,
+    required this.authorId,
+  });
+  DMMentionCreateEvent.fromJson(Map<String, dynamic> j)
+      : messageId = j['message_id'] as String,
+        conversationId = j['conversation_id'] as String,
+        authorId = j['author_id'] as String;
 }
 
 class UserUpdateEvent {
@@ -1977,6 +2019,11 @@ class MessageDeletedEvent extends GatewayEventPayload {
 class MentionCreatedEvent extends GatewayEventPayload {
   final MentionCreateEvent data;
   const MentionCreatedEvent(this.data);
+}
+
+class DMMentionCreatedEvent extends GatewayEventPayload {
+  final DMMentionCreateEvent data;
+  const DMMentionCreatedEvent(this.data);
 }
 
 class UserUpdatedEvent extends GatewayEventPayload {

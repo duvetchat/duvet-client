@@ -12,5 +12,6 @@
   "max_bytes": 2,
   "upload_limit_bytes": 2,
   "created_at": "2026-10-22T10:00:00.123456789Z",
-  "updated_at": "2026-10-22T10:00:00.123456789Z"
+  "updated_at": "2026-10-22T10:00:00.123456789Z",
+  "used_bytes": 2
 }

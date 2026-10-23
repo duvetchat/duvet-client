@@ -51,6 +51,8 @@ class GatewayEnvelope {
         return MessageDeletedEvent(GatewayMessageDelete.fromJson(d));
       case 'MENTION_CREATE':
         return MentionCreatedEvent(MentionCreateEvent.fromJson(d));
+      case 'DM_MENTION_CREATE':
+        return DMMentionCreatedEvent(DMMentionCreateEvent.fromJson(d));
       case 'USER_UPDATE':
         return UserUpdatedEvent(UserUpdateEvent.fromJson(d));
       case 'USER_STATUS_UPDATE':

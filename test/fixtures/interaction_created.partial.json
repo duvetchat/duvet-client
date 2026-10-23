@@ -1,3 +1,8 @@
 {
-  "type": 2
+  "type": 2,
+  "data": {
+    "custom_id": "s-string",
+    "title": "s-string",
+    "components": []
+  }
 }

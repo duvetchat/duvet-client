@@ -5,6 +5,7 @@ import 'dart:math' show min;
 import 'package:http/http.dart' as http;
 import 'package:duvet_client/http/router.dart';
 import 'package:duvet_client/http/methods.dart';
+import 'package:duvet_client/http/send.dart';
 import 'package:duvet_client/errors.dart';
 
 /// The tokens logging in or refreshing the session gives.
@@ -46,10 +47,17 @@ class RestClient with RestMethods {
 
   bool get isAuthenticated => _token.isNotEmpty;
 
+  @override
+  final Duration requestTimeout;
+
   /// A client for the API; [token] and [sessionToken] resume a session
-  /// [logIn] started before.
+  /// [logIn] started before. A request fails with a [TimeoutException] once
+  /// [requestTimeout] passes without progress.
   RestClient(this.client,
-      {ApiRouter? router, String token = '', String sessionToken = ''})
+      {ApiRouter? router,
+      String token = '',
+      String sessionToken = '',
+      this.requestTimeout = defaultRequestTimeout})
       : router = router ?? const ApiRouter(),
         _token = token,
         _sessionToken = sessionToken;
@@ -86,10 +94,13 @@ class RestClient with RestMethods {
 
   Future<SignIn> _requestRefresh() async {
     final sessionToken = _sessionToken;
-    Future<http.Response> refresh() =>
-        client.post(router.urlFromPath('/api/auth/refresh'), headers: {
-          if (sessionToken.isNotEmpty) 'X-Session-Token': sessionToken,
-        });
+    Future<http.Response> refresh() => sendWithin(
+        client,
+        http.Request('POST', router.urlFromPath('/api/auth/refresh'))
+          ..headers.addAll({
+            if (sessionToken.isNotEmpty) 'X-Session-Token': sessionToken,
+          }),
+        timeout: requestTimeout);
 
     var response = await refresh();
     // A 429 means "try again later", not an invalid session: wait as long as

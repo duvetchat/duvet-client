@@ -1,6 +1,33 @@
 part of 'types.dart';
 
 // ---------------------------------------------------------------------------
+// Spaces
+// ---------------------------------------------------------------------------
+
+/// What creating a space answers: the space, and the rooms the API makes with
+/// it (a text and a voice room). The gateway's SPACE_CREATE, with its roles
+/// and members, follows.
+class CreatedSpace {
+  final GatewaySpace space;
+
+  /// Its text room, then its voice room.
+  final List<GatewayRoom> rooms;
+
+  const CreatedSpace({required this.space, required this.rooms});
+
+  CreatedSpace.fromJson(Map<String, dynamic> j)
+      : space = GatewaySpace.fromJson(j['space'] as Map<String, dynamic>),
+        rooms = [
+          for (final key in const ['text_room', 'voice_room'])
+            if (j[key] != null)
+              GatewayRoom.fromJson(j[key] as Map<String, dynamic>),
+        ];
+
+  /// The space's ID.
+  String get id => space.id;
+}
+
+// ---------------------------------------------------------------------------
 // Space members
 // ---------------------------------------------------------------------------
 
@@ -599,6 +626,54 @@ class SpaceCommands {
         commands = (j['commands'] as List<dynamic>? ?? [])
             .map((e) => ApplicationCommand.fromJson(e as Map<String, dynamic>))
             .toList();
+}
+
+/// The types of a bot's first response to an interaction
+/// ([InteractionReply.type]).
+abstract final class InteractionCallbackType {
+  /// A message in the interaction's room.
+  static const channelMessageWithSource = 4;
+
+  /// A LOADING message, which the bot completes by editing it.
+  static const deferredChannelMessageWithSource = 5;
+
+  /// Nothing yet: the bot edits the component's message later.
+  static const deferredUpdateMessage = 6;
+
+  /// The component's message, edited at once.
+  static const updateMessage = 7;
+
+  /// A modal for the person who used the component or the command.
+  static const modal = 9;
+}
+
+/// What a person's interaction answers: the type of the bot's first response
+/// and, when the bot opened a modal, the modal and the application its submit
+/// goes to.
+class InteractionReply {
+  /// An [InteractionCallbackType].
+  final int type;
+
+  /// The modal, as the API sends it: its `custom_id`, `title` and
+  /// `components`.
+  final Map<String, dynamic>? modal;
+
+  /// The application whose bot opened the modal.
+  final String? applicationId;
+
+  const InteractionReply({required this.type, this.modal, this.applicationId});
+
+  InteractionReply.fromJson(Map<String, dynamic> j)
+      : type = j['type'] as int,
+        modal = j['data'] as Map<String, dynamic>?,
+        applicationId = j['application_id'] as String?;
+
+  /// Whether the bot opened a modal: then [modal] and [applicationId] are
+  /// set.
+  bool get isModal =>
+      type == InteractionCallbackType.modal &&
+      modal != null &&
+      applicationId != null;
 }
 
 /// What a person sends about the component of a bot's message they used.

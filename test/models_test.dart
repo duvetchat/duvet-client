@@ -149,6 +149,8 @@ void main() {
     _parses('message_response', DirectMessage.fromJson, always: author);
     _parses('dm_message_create', DirectMessage.fromJson, always: author);
     _parses('dm_message_update', DirectMessage.fromJson, always: author);
+    // A conversation's thread has a room's thread's shape.
+    _parses('thread_message', DirectMessage.fromJson, always: author);
 
     test('search', () {
       for (final json in _variants('message_search').values) {
@@ -171,6 +173,45 @@ void main() {
     _parses('webhook_create', WebhookCreateResponse.fromJson);
     _parses('space_member', SpaceMemberWithUser.fromJson);
     _parses('space_commands', SpaceCommands.fromJson);
+    _parses('create_space_result', CreatedSpace.fromJson, check: (s, _) {
+      expect(s.id, s.space.id);
+      expect(s.rooms, hasLength(2));
+    });
+
+    test('a created space needs only the space and its rooms', () {
+      final full = _load('create_space_result', 'full');
+      final s = CreatedSpace.fromJson({
+        for (final key in ['space', 'text_room', 'voice_room']) key: full[key],
+      });
+      expect(s.rooms.map((r) => r.id), [
+        (full['text_room'] as Map)['id'],
+        (full['voice_room'] as Map)['id'],
+      ]);
+    });
+  });
+
+  group('interactions', () {
+    _parses('interaction_created', InteractionReply.fromJson,
+        check: (r, variant) {
+      expect(r.type, 2);
+      expect(r.isModal, isFalse);
+    });
+
+    test('a modal: its data and application', () {
+      final r = InteractionReply.fromJson(
+          {..._load('interaction_created', 'full'), 'type': 9});
+      expect(r.isModal, isTrue);
+      expect(r.modal!['custom_id'], 's-string');
+      expect(r.modal!['components'], isNotEmpty);
+      expect(r.applicationId, isNotNull);
+    });
+
+    test('a modal without its application is not one to open', () {
+      final r = InteractionReply.fromJson(
+          {..._load('interaction_created', 'partial'), 'type': 9});
+      expect(r.modal, isNotNull);
+      expect(r.isModal, isFalse);
+    });
   });
 
   group('conversations and friends', () {
@@ -214,6 +255,7 @@ void main() {
       'MESSAGE_UPDATE': ('message_update', ['room_id']),
       'MESSAGE_DELETE': ('message_delete', []),
       'MENTION_CREATE': ('mention_create_event', []),
+      'DM_MENTION_CREATE': ('dm_mention_create_event', []),
       'USER_UPDATE': ('user_update_event', []),
       'USER_STATUS_UPDATE': ('user_status_update_event', []),
       'VOICE_STATE_UPDATE': ('voice_state_update_event', []),
@@ -306,6 +348,30 @@ void main() {
           as SpaceCreateEvent;
       expect(e.data.rooms, isNotEmpty);
       expect(e.data.rolesPermissions, isNotEmpty);
+    });
+
+    test('SPACE_CREATE: the members\' statuses, none when left out', () {
+      final full = dispatch('SPACE_CREATE', _load('space_create_event', 'full'))
+          as SpaceCreateEvent;
+      expect(full.data.memberStatuses, {'s-string': UserStatus.dnd});
+      final nulls =
+          dispatch('SPACE_CREATE', _load('space_create_event', 'nulls'))
+              as SpaceCreateEvent;
+      expect(nulls.data.memberStatuses, isEmpty);
+    });
+
+    test('mentions carry their message and author', () {
+      final room =
+          dispatch('MENTION_CREATE', _load('mention_create_event', 'full'))
+              as MentionCreatedEvent;
+      expect((room.data.messageId, room.data.roomId, room.data.authorId),
+          ('s-string', 's-string', 's-string'));
+      expect(room.data.conversationId, isNull);
+
+      final json = _load('dm_mention_create_event', 'full');
+      final dm = dispatch('DM_MENTION_CREATE', json) as DMMentionCreatedEvent;
+      expect((dm.data.messageId, dm.data.conversationId, dm.data.authorId),
+          (json['message_id'], json['conversation_id'], json['author_id']));
     });
 
     test('an event the client doesn\'t know', () {
