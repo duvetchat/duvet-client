@@ -239,5 +239,6 @@
     "interacted_message_id": "12020202-0202-7002-8002-020202020202",
     "original_response_message_id": "12020202-0202-7002-8002-020202020202",
     "name": "s-string"
-  }
+  },
+  "ref_mention_author": true
 }

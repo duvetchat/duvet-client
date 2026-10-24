@@ -259,6 +259,7 @@
         "message_id": "13020202-0202-7002-8002-020202020202",
         "room_id": "13020202-0202-7002-8002-020202020202",
         "space_id": "13020202-0202-7002-8002-020202020202",
+        "mention_author": true,
         "content": "s-string",
         "author_id": "s-string",
         "author_name": "s-string",

@@ -18,5 +18,6 @@
   "pinned_at": null,
   "flags": 2,
   "components": [],
-  "interaction_metadata": null
+  "interaction_metadata": null,
+  "ref_mention_author": false
 }

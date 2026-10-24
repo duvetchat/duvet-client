@@ -18,11 +18,19 @@ out, and they read as null.
   `UserMeResult.status`, and READY's `GatewayUser.status`. Both are null for a
   bot. USER_STATUS_UPDATE and SPACE_CREATE's `member_statuses` already parsed
   2 as `UserStatus.dnd`.
+- **Friends' statuses:** `Friend.statusId`, the status the friends list gives
+  each friend (`status_id`), whether or not a space is shared with them, so an
+  app can show it before USER_STATUS_UPDATE brings a change. Null from an API
+  before it.
 
 ### Tests
 
 - What `updateUser` and `setStatus` send, a bot's refusal, and the new fields,
   present and left out.
+- A friend's status, and none from an older API. The fixtures were made again
+  from the API (`friend` from its `serializers.Friend`), which also brought
+  FRIEND_REQUEST_ACCEPT's `status_id` and replies' `mention_author` into the
+  message fixtures.
 - The fixtures `user_update_event`, `user_me`, `ready_event` and
   `bot_ready_event` come from the unmerged branches that add these fields: the
   API's `space-delete-bio` (the bio) and `dnd-status` (the status), and the
