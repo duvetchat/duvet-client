@@ -18,6 +18,8 @@ class GatewayManager with GatewayEvents {
   final _stateController = StreamController<GatewayConnectionState>.broadcast();
   final _resumeController = StreamController<void>.broadcast();
   final _closeController = StreamController<GatewayCloseReason>.broadcast();
+  final _failureController =
+      StreamController<GatewayConnectFailure>.broadcast();
 
   @override
   Stream<GatewayEventPayload> get onEvent => _eventController.stream;
@@ -41,6 +43,12 @@ class GatewayManager with GatewayEvents {
   /// Broadcast stream of the reasons the gateway gives before it closes a
   /// shard's socket ([GatewayClient.onCloseReason]).
   Stream<GatewayCloseReason> get onCloseReason => _closeController.stream;
+
+  /// Broadcast stream of the shards' attempts to open a socket that failed
+  /// ([GatewayClient.onConnectFailure]): with the gateway's HTTP status, a
+  /// 401 when it doesn't know the token, and how many failed in a row.
+  Stream<GatewayConnectFailure> get onConnectFailure =>
+      _failureController.stream;
 
   final RestClient api;
   final void Function(int shardId, String msg) _log;
@@ -112,6 +120,7 @@ class GatewayManager with GatewayEvents {
     _stateController.close();
     _resumeController.close();
     _closeController.close();
+    _failureController.close();
     api.client.close();
     _log(-1, '[GatewayManager] destroyed');
   }
@@ -185,6 +194,9 @@ class GatewayManager with GatewayEvents {
       }),
       client.onCloseReason.listen((close) {
         if (!_closeController.isClosed) _closeController.add(close);
+      }),
+      client.onConnectFailure.listen((failure) {
+        if (!_failureController.isClosed) _failureController.add(failure);
       }),
     ]);
     _shards.add(client);

@@ -14,8 +14,10 @@ import 'package:test/test.dart';
 
 const _token = 'secret-access-token-0123';
 
-/// What the fake gateway does with an upgrade request.
-enum _Answer { upgrade, refuse, hold }
+/// What the fake gateway does with an upgrade request: take it; refuse it
+/// with a 503 while it can't check tokens, or a 401 for a token it doesn't
+/// know, as the gateway's middlewares/auth.go does; or never answer.
+enum _Answer { upgrade, refuse, unauthorized, hold }
 
 /// A gateway on 127.0.0.1 that answers each upgrade request as [plan] says,
 /// and identify with READY, as the real one does.
@@ -64,7 +66,14 @@ class _FakeGateway {
     at.add(DateTime.now());
     switch (plan(n)) {
       case _Answer.refuse:
-        request.response.statusCode = HttpStatus.serviceUnavailable;
+        request.response
+          ..statusCode = HttpStatus.serviceUnavailable
+          ..headers.set('Retry-After', '5');
+        await request.response.close();
+      case _Answer.unauthorized:
+        request.response
+          ..statusCode = HttpStatus.unauthorized
+          ..write('{"error":"invalid token"}');
         await request.response.close();
       case _Answer.hold:
         _held.add(request);
@@ -280,15 +289,66 @@ void main() {
         connectTimeout: const Duration(milliseconds: 200));
     addTearDown(client.destroy);
 
+    final failed = client.onConnectFailure.take(2).toList();
+
     final watch = Stopwatch()..start();
     await expectLater(client.connect(), throwsA(isA<TimeoutException>()));
     expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
     await expectLater(
         client.connect(),
-        throwsA(isA<WebSocketException>().having((e) => '$e', 'error',
-            allOf(contains('not upgraded'), isNot(contains(_token))))));
+        throwsA(isA<WebSocketException>().having(
+            (e) => '$e',
+            'error',
+            allOf(contains('not upgraded'), contains('HTTP status code: 503'),
+                isNot(contains(_token))))));
     // Nothing tries again on its own.
     expect(client.connectionState, GatewayConnectionState.disconnected);
+    // Each failure, in a row: no answer at all, then the gateway's 503.
+    final failures = await failed;
+    expect(
+        failures.map((f) => (f.failures, f.httpStatus)), [(1, null), (2, 503)]);
+    expect(failures.first.error, isA<TimeoutException>());
+  });
+
+  test('each failed attempt reaches the app, with the gateway\'s status',
+      () async {
+    // A token the gateway doesn't know, then its caches rebuilding, then in;
+    // after a drop, the token unknown again.
+    gateway.plan = (n) => switch (n) {
+          0 || 3 => _Answer.unauthorized,
+          1 => _Answer.refuse,
+          _ => _Answer.upgrade,
+        };
+    final g = _manager(gateway);
+    addTearDown(g.manager.destroy);
+    final failed = g.manager.onConnectFailure.take(2).toList();
+
+    await g.manager.connectAll();
+    await gateway.identifies(1);
+    final failures = await failed;
+    expect(
+        failures.map((f) => (f.failures, f.httpStatus)), [(1, 401), (2, 503)]);
+    for (final f in failures) {
+      expect(
+          '${f.error}',
+          allOf(contains('HTTP status code: ${f.httpStatus}'),
+              isNot(contains(_token))));
+    }
+    // The desktop app doesn't honor the 503's Retry-After (5 s), which a
+    // browser can't read: the wait after it is a second failure's, 2 to 3 s.
+    final waits = [
+      for (final m in g.logs
+          .map(RegExp(r'reconnecting in (\d+)ms \(attempt 2\)').firstMatch)
+          .nonNulls)
+        int.parse(m[1]!),
+    ];
+    expect(waits.single, inInclusiveRange(2000, 2999));
+
+    // A socket opened: the count starts over.
+    final next = g.manager.onConnectFailure.first;
+    await gateway.open.single.close();
+    final again = await next;
+    expect((again.failures, again.httpStatus), (1, 401));
   });
 
   test('destroy() while waiting to reconnect: no socket opens after it',

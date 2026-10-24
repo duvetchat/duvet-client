@@ -5,11 +5,12 @@ them (not deployed yet). Nothing breaks: an older server leaves the new fields
 out, and they read as null.
 
 Then what the desktop app has and this package lacked: the gateway events it
-dropped, resuming a dropped gateway session, the gateway's close reasons,
-`allowed_mentions`, a bot's shards in identify, and the desktop app's wait
-between attempts to reconnect. **Breaking change:** the events it dropped join
-the sealed `GatewayEventPayload` (see "Breaking changes"). Resuming is off
-unless asked for, and the new parameters and fields are optional.
+dropped, resuming a dropped gateway session, the gateway's close reasons, the
+attempts to connect that fail, `allowed_mentions`, a bot's shards in identify,
+and the desktop app's wait between attempts to reconnect. **Breaking change:**
+the events it dropped join the sealed `GatewayEventPayload` (see "Breaking
+changes"). Resuming is off unless asked for, and the new parameters and fields
+are optional.
 
 ### Breaking changes
 
@@ -119,6 +120,18 @@ unless asked for, and the new parameters and fields are optional.
   (`FriendRequestAcceptEvent.statusId`), the new friend's status; and
   USER_UPDATE's `flags` and `badges` (`UserUpdateEvent.flags` and `badges`).
   Each is null from an API that leaves it out.
+- **Failed attempts to connect:** `onConnectFailure`, on the manager and the
+  client, gets a `GatewayConnectFailure` for each attempt to open a socket
+  that failed: `failures`, how many failed in a row since a socket last
+  opened; `httpStatus`, the gateway's answer when it refused the upgrade; and
+  the `error`, the token masked, which keeps the status in its text. A token
+  that stopped working is refused at the upgrade (401), not closed (4004), so
+  the app couldn't tell: it can ask the API about the session then. The
+  desktop app, which can't see the status, asks on the first failure and
+  every 5th after it (failures 1, 6, 11…). The status needs Dart 3.6, whose
+  dart:io gives it; it's null before. While the gateway can't check tokens it
+  answers 503 with `Retry-After: 5`, which the desktop app can't read: it
+  waits as after any failure, and so does this package.
 
 ### Fixed
 
@@ -177,6 +190,10 @@ unless asked for, and the new parameters and fields are optional.
   schedule gives them (a second up to 30, also far past where a power of two
   overflows, and at random), and as two refused attempts in a row take them,
   1 then 2 seconds and more.
+- `test/gateway_test.dart`: each failed attempt reaches `onConnectFailure`,
+  with the gateway's 401 and 503 and their count, which starts over once a
+  socket opened; after the 503 the usual wait, not its `Retry-After`; a
+  timeout, with no status; and `connect()`'s error keeps the status.
 - The fixtures `message_pin_update_event`, `dm_message_pin_update_event`,
   `room_reorder_event` and `team_invite_create_event` (the API's events) and
   `user_activity_update_event` (the gateway's), made by

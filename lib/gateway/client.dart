@@ -32,6 +32,32 @@ Duration reconnectDelay(int failed, [Random? random]) {
               (random ?? _random).nextInt(_reconnectJitter.inMicroseconds));
 }
 
+/// An attempt to open a socket to the gateway that failed:
+/// [GatewayClient.onConnectFailure].
+class GatewayConnectFailure {
+  /// How many attempts in a row failed, this one included, since a socket
+  /// last opened: 1 for the first.
+  final int failures;
+
+  /// The HTTP status the gateway refused the upgrade with: 401 for a token it
+  /// doesn't know (the session ended, or the token expired), 503 while it
+  /// can't check tokens yet (its Redis restarted, and the API hasn't cached
+  /// them again), or a proxy's while the gateway is down (502). Null when no
+  /// answer came (no network, [GatewayClient.connectTimeout]), and before
+  /// Dart 3.6, whose dart:io doesn't give it.
+  final int? httpStatus;
+
+  /// What stopped it, as [GatewayClient.connect] throws it: with the token
+  /// masked.
+  final Object error;
+
+  const GatewayConnectFailure(
+      {required this.failures, this.httpStatus, required this.error});
+
+  @override
+  String toString() => 'GatewayConnectFailure($failures, $httpStatus: $error)';
+}
+
 /// Where a gateway connection is.
 enum GatewayConnectionState {
   /// Opening the first socket.
@@ -139,6 +165,19 @@ class GatewayClient {
   /// app does.
   Stream<GatewayCloseReason> get onCloseReason => _closeController.stream;
 
+  /// Broadcast stream of the attempts to open a socket that failed, each with
+  /// how many failed in a row and the HTTP status the gateway refused it
+  /// with, when it answered: [GatewayConnectFailure]. The client tries again
+  /// all the same, after [reconnectDelay].
+  ///
+  /// A token that stopped working is refused at the upgrade (401), not
+  /// closed (4004): ask the API about the session then, which renews the
+  /// token or ends the session. The desktop app, which can't see the status,
+  /// asks on the first failure and every 5th after it
+  /// (`RECONNECTS_PER_SESSION_CHECK`): failures 1, 6, 11…
+  Stream<GatewayConnectFailure> get onConnectFailure =>
+      _failureController.stream;
+
   /// The connection's state now.
   GatewayConnectionState get connectionState => _state;
 
@@ -191,6 +230,10 @@ class GatewayClient {
   // The heartbeat sent right after a resuming identify waits for its ack.
   bool _probing = false;
 
+  // The attempts to open a socket that failed in a row: see
+  // [onConnectFailure].
+  int _failures = 0;
+
   // The sockets that opened, counted: see [connection].
   int _connections = 0;
 
@@ -218,6 +261,9 @@ class GatewayClient {
 
   final StreamController<GatewayCloseReason> _closeController =
       StreamController<GatewayCloseReason>.broadcast();
+
+  final StreamController<GatewayConnectFailure> _failureController =
+      StreamController<GatewayConnectFailure>.broadcast();
 
   static const Duration _heartbeatInterval = Duration(seconds: 45);
   static const Duration _heartbeatAckTimeout = Duration(seconds: 15);
@@ -291,11 +337,20 @@ class GatewayClient {
       if (_destroyed) {
         throw StateError('Shard $shardId was destroyed while connecting.');
       }
+      final masked = _masked(e);
+      // Not one a newer attempt replaced.
+      if (attempt == _attempt) {
+        _failures++;
+        if (!_failureController.isClosed) {
+          _failureController.add(GatewayConnectFailure(
+              failures: _failures, httpStatus: _httpStatus(e), error: masked));
+        }
+      }
       // Unless [reconnect] is trying, nothing is.
       if (_reconnecting == null) {
         _setState(GatewayConnectionState.disconnected);
       }
-      Error.throwWithStackTrace(_masked(e), st);
+      Error.throwWithStackTrace(masked, st);
     } finally {
       if (identical(_opening, http)) _opening = null;
     }
@@ -315,6 +370,7 @@ class GatewayClient {
     _socket = socket;
     _connections++;
     _reconnectAttempts = 0;
+    _failures = 0;
     socket.listen(
       (raw) {
         if (identical(socket, _socket)) _onMessage(raw);
@@ -415,20 +471,32 @@ class GatewayClient {
   }
 
   // [e] with the token masked: a failed handshake's error carries the URL,
-  // query and all.
+  // query and all. A refusal's status stays in its text.
   Object _masked(Object e) => switch (e) {
         WebSocketException(:final message) =>
-          WebSocketException(_mask(message)),
+          WebSocketException(_mask(message) +
+              switch (_httpStatus(e)) {
+                final status? => ', HTTP status code: $status',
+                null => '',
+              }),
         HttpException(:final message, :final uri) => HttpException(
             _mask(message),
             uri: uri == null ? null : Uri.parse(_mask('$uri'))),
         _ => e,
       };
 
+  // The status the gateway refused an upgrade with. dart:io gives it since
+  // Dart 3.6, as WebSocketException.httpStatusCode, which ends its text: read
+  // there, as this package still takes Dart 3.0.
+  static int? _httpStatus(Object e) => e is WebSocketException
+      ? int.tryParse(
+          RegExp(r', HTTP status code: (\d+)$').firstMatch('$e')?[1] ?? '')
+      : null;
+
   /// Permanently shuts down this client. The [events], [errors],
-  /// [onConnectionState], [onResume] and [onCloseReason] streams are closed
-  /// and the socket is disconnected; no other one opens. Do not reuse after
-  /// calling this.
+  /// [onConnectionState], [onResume], [onCloseReason] and [onConnectFailure]
+  /// streams are closed and the socket is disconnected; no other one opens.
+  /// Do not reuse after calling this.
   void destroy() {
     if (_destroyed) return;
     _destroyed = true;
@@ -443,6 +511,7 @@ class GatewayClient {
     _stateController.close();
     _resumeController.close();
     _closeController.close();
+    _failureController.close();
     _log('destroyed');
   }
 
