@@ -641,6 +641,11 @@ class GatewayUser {
   final int badges;
   final bool isBot;
   final UserStatus statusId;
+
+  /// The status the user chose ([UserStatus.online] or [UserStatus.dnd]):
+  /// only on their own user, in READY. Null elsewhere, for a bot, and from a
+  /// gateway from before statuses.
+  final UserStatus? status;
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? deletedAt;
@@ -657,6 +662,7 @@ class GatewayUser {
     this.badges = 0,
     this.isBot = false,
     required this.statusId,
+    this.status,
     required this.createdAt,
     required this.updatedAt,
     this.deletedAt,
@@ -674,6 +680,10 @@ class GatewayUser {
         badges = j['badges'] as int? ?? 0,
         isBot = j['is_bot'] as bool? ?? false,
         statusId = UserStatus.fromInt(j['status_id'] as int? ?? 0),
+        status = switch (j['status'] as int?) {
+          final s? => UserStatus.fromInt(s),
+          null => null,
+        },
         createdAt = DateTime.parse(j['created_at'] as String),
         updatedAt = DateTime.parse(j['updated_at'] as String),
         deletedAt = j['deleted_at'] != null
@@ -1615,18 +1625,24 @@ class UserUpdateEvent {
   final String? alias;
   final String? avatar;
   final String? banner;
+
+  /// The bio, empty when there's none. Null from an API from before bios,
+  /// which leaves it out: the one known then stays.
+  final String? custom;
   const UserUpdateEvent(
       {required this.id,
       required this.username,
       this.alias,
       this.avatar,
-      this.banner});
+      this.banner,
+      this.custom});
   UserUpdateEvent.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
         username = j['username'] as String,
         alias = j['alias'] as String?,
         avatar = j['avatar'] as String?,
-        banner = j['banner'] as String?;
+        banner = j['banner'] as String?,
+        custom = j['custom'] as String?;
 }
 
 /// VOICE_STATE_UPDATE: a user's whole voice state in a space's voice room or
@@ -2068,6 +2084,10 @@ class UserMeResult {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  /// The status the user chose: [UserStatus.online] or [UserStatus.dnd]. Null
+  /// for a bot, and from an API from before statuses.
+  final UserStatus? status;
+
   const UserMeResult({
     required this.id,
     required this.username,
@@ -2083,6 +2103,7 @@ class UserMeResult {
     this.isBot = false,
     required this.createdAt,
     required this.updatedAt,
+    this.status,
   });
 
   UserMeResult.fromJson(Map<String, dynamic> j)
@@ -2099,7 +2120,11 @@ class UserMeResult {
         badges = j['badges'] as int? ?? 0,
         isBot = j['is_bot'] as bool? ?? false,
         createdAt = DateTime.parse(j['created_at'] as String),
-        updatedAt = DateTime.parse(j['updated_at'] as String);
+        updatedAt = DateTime.parse(j['updated_at'] as String),
+        status = switch (j['status'] as int?) {
+          final s? => UserStatus.fromInt(s),
+          null => null,
+        };
 }
 
 // ---------------------------------------------------------------------------

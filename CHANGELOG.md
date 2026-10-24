@@ -1,3 +1,33 @@
+## Unreleased
+
+Bios and the do-not-disturb status, for the API and gateway versions that bring
+them (not deployed yet). Nothing breaks: an older server leaves the new fields
+out, and they read as null.
+
+### Added
+
+- **Bios:** `updateUser(custom:)` sets the bio. The API trims it and takes
+  `maxBioLength` (190) characters at most, counted as code points (`runes`),
+  so an emoji is one. An empty one clears it, and left out it stays.
+  `UserUpdateEvent.custom` is USER_UPDATE's bio, null when an older API leaves
+  it out.
+- **Status:** `setStatus(UserStatus.online | UserStatus.dnd)`
+  (`PUT /api/users/@me/status`) chooses the status others see while the user
+  is connected, and answers the user. Offline isn't a choice (an
+  `ArgumentError`), and bots get a 403. The status the user chose is
+  `UserMeResult.status`, and READY's `GatewayUser.status`. Both are null for a
+  bot. USER_STATUS_UPDATE and SPACE_CREATE's `member_statuses` already parsed
+  2 as `UserStatus.dnd`.
+
+### Tests
+
+- What `updateUser` and `setStatus` send, a bot's refusal, and the new fields,
+  present and left out.
+- The fixtures `user_update_event`, `user_me`, `ready_event` and
+  `bot_ready_event` come from the unmerged branches that add these fields: the
+  API's `space-delete-bio` (the bio) and `dnd-status` (the status), and the
+  gateway's `dnd-status`. Every other fixture they make is unchanged.
+
 ## 1.0.1 – 2026-10-23
 
 What the Duvet mobile app needs, a gateway connection that recovers from

@@ -665,7 +665,7 @@ void main() {
 
     test('deleteSpace: refusals keep their status and body', () async {
       for (final (status, body) in [
-        (403, '{"error":"only the owner can delete the space"}'),
+        (403, '{"error":"only the space\'s owner can delete it"}'),
         (404, '{"error":"space not found"}'),
         // An API without the route: gin's own plain-text 404.
         (404, '404 page not found'),
@@ -977,8 +977,47 @@ void main() {
           });
       await c.api.updateUser(username: 'me');
       await c.api.updateUser(clearAlias: true);
+      await c.api.updateUser(alias: 'Me', custom: 'Hi 👋');
+      // An empty bio clears it; left out, it stays.
+      await c.api.updateUser(custom: '');
       expect(c.sent[0].json, {'username': 'me'});
       expect(c.sent[1].json, {'alias': null});
+      expect(c.sent[2].json, {'alias': 'Me', 'custom': 'Hi 👋'});
+      expect(c.sent[3].json, {'custom': ''});
+    });
+
+    test('setStatus chooses online or do not disturb', () async {
+      final c = _client((_) => {
+            'id': 'u1',
+            'username': 'me',
+            'email_verified': true,
+            'custom': '',
+            'status': 2,
+            'created_at': _time,
+            'updated_at': _time,
+          });
+      final me = await c.api.setStatus(UserStatus.dnd);
+      await c.api.setStatus(UserStatus.online);
+      expect(c.sent[0].method, 'PUT');
+      expect(c.sent[0].path, '/api/users/@me/status');
+      expect(c.sent[0].json, {'status': 2});
+      expect(c.sent[1].json, {'status': 1});
+      expect(me.status, UserStatus.dnd);
+
+      // Offline isn't a choice: nothing is sent.
+      await expectLater(
+          c.api.setStatus(UserStatus.offline), throwsArgumentError);
+      expect(c.sent, hasLength(2));
+    });
+
+    test('setStatus: a bot\'s refusal keeps its status and body', () async {
+      const body = '{"error":"bots cannot access this endpoint"}';
+      final c = _client((_) => http.Response(body, 403));
+      await expectLater(
+          c.api.setStatus(UserStatus.dnd),
+          throwsA(isA<DuvetApiException>()
+              .having((e) => e.statusCode, 'statusCode', 403)
+              .having((e) => e.body, 'body', body)));
     });
 
     test('uploadProfileImage sends the crop', () async {

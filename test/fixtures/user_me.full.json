@@ -13,5 +13,6 @@
   "flags": 2,
   "badges": 2,
   "birthdate": "2026-10-22T10:00:00.123456789Z",
-  "phone": "s-string"
+  "phone": "s-string",
+  "status": 2
 }
