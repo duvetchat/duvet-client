@@ -9,4 +9,4 @@ export 'package:duvet_client/gateway/client.dart'
     show GatewayClient, GatewayConnectionState, defaultConnectTimeout;
 export 'package:duvet_client/gateway/manager.dart' show GatewayManager;
 export 'package:duvet_client/gateway/webrtc_controller.dart'
-    show WebRTCController, VoiceParticipant;
+    show WebRTCController, VoiceParticipant, VoiceStates;

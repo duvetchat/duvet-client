@@ -95,22 +95,31 @@ class GatewayManager with GatewayEvents {
     _log(-1, '[GatewayManager] destroyed');
   }
 
-  /// Sends an arbitrary event message through shard 0.
+  /// Sends an arbitrary event message through shard 0, and answers whether it
+  /// went out on an open socket ([GatewayClient.sendMessage]).
   ///
   /// This is the manager-level equivalent of the TypeScript
   /// `sendEventMessage(type, data)` helper. All WebRTC / voice signalling
   /// messages should go through this method rather than reaching into
-  /// individual [GatewayClient] instances.
+  /// individual [GatewayClient] instances; [WebRTCController] types them.
   ///
   /// Throws a [StateError] if no shards have been connected yet.
-  void sendMessage(String type, Map<String, dynamic> data) {
+  bool sendMessage(String type, Map<String, dynamic> data) {
     if (_shards.isEmpty) {
       throw StateError('Cannot send "$type" — no shards are connected. '
           'Call connectAll() first.');
     }
     // Route through shard 0; update to round-robin / hash when sharding lands.
-    _shards[0].sendMessage(type, data);
+    return _shards[0].sendMessage(type, data);
   }
+
+  /// Shard 0's [GatewayClient.connection]: the number of its open socket, or
+  /// null while none is (and before [connectAll]).
+  int? get connection => _shards.isEmpty ? null : _shards[0].connection;
+
+  /// Shard 0's [GatewayClient.silenceBeforeReady].
+  Duration get silenceBeforeReady =>
+      _shards.isEmpty ? Duration.zero : _shards[0].silenceBeforeReady;
 
   Future<void> _spawnShard(
       {required int shardId, required int shardCount}) async {

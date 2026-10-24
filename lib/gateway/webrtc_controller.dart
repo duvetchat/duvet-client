@@ -7,10 +7,11 @@ import 'dart:async';
 import 'package:duvet_client/gateway/manager.dart';
 import 'package:duvet_client/models/types.dart';
 
-/// Snapshot of a single participant's voice state inside a room.
+/// A user's voice state in a space's voice room, or in a conversation's call
+/// (then [roomId] is the conversation's ID).
 ///
-/// Immutable - a new instance is produced on every update so consumers can
-/// compare references for change detection.
+/// Immutable: a new instance comes with every update, so consumers can compare
+/// references to tell what changed.
 class VoiceParticipant {
   final String userId;
   final String roomId;
@@ -18,285 +19,325 @@ class VoiceParticipant {
   final bool deafened;
   final bool screenSharing;
 
+  /// Their camera is on.
+  final bool camera;
+
+  /// The state's version: see [VoiceStateEvent.version].
+  final int version;
+
   const VoiceParticipant({
     required this.userId,
     required this.roomId,
     this.muted = false,
     this.deafened = false,
     this.screenSharing = false,
+    this.camera = false,
+    this.version = 0,
   });
-
-  VoiceParticipant copyWith({
-    bool? muted,
-    bool? deafened,
-    bool? screenSharing,
-  }) =>
-      VoiceParticipant(
-        userId: userId,
-        roomId: roomId,
-        muted: muted ?? this.muted,
-        deafened: deafened ?? this.deafened,
-        screenSharing: screenSharing ?? this.screenSharing,
-      );
 
   @override
   String toString() => 'VoiceParticipant(userId=$userId, roomId=$roomId, '
-      'muted=$muted, deafened=$deafened, screenSharing=$screenSharing)';
+      'muted=$muted, deafened=$deafened, screenSharing=$screenSharing, '
+      'camera=$camera, version=$version)';
 }
 
-/// Handles all WebRTC / voice signalling events received from the gateway
-/// and provides typed send-methods for the outbound signalling messages.
+/// Who's in voice in every room and call a session knows of, kept as the
+/// gateway reports it: READY's calls, each SPACE_CREATE's voice rooms, then
+/// every VOICE_STATE_UPDATE.
 ///
-/// This is the Dart equivalent of the TypeScript `webrtcListeners` registry
-/// + the voice-state management inside `handleEvent`.
+/// Updates can arrive out of order. Each carries a version that grows with
+/// every change, and one older than what's known is dropped; one as new is
+/// the same state again (a call's catch-up when the user joins it).
+class VoiceStates {
+  final _rooms = <String, Map<String, VoiceParticipant>>{};
+
+  // The newest version seen per room and user, kept after they leave, so a
+  // late "joined" can't bring them back.
+  final _versions = <String, int>{};
+
+  /// Everyone in voice, by room (or call) ID, then by user ID. Unmodifiable.
+  Map<String, Map<String, VoiceParticipant>> get rooms => Map.unmodifiable(
+      _rooms.map((roomId, users) => MapEntry(roomId, Map.unmodifiable(users))));
+
+  /// Who's in [roomId]: none when nobody is.
+  List<VoiceParticipant> participantsIn(String roomId) =>
+      List.unmodifiable(_rooms[roomId]?.values ?? const <VoiceParticipant>[]);
+
+  /// READY: a new session, so what was known is dropped (each space's
+  /// SPACE_CREATE brings its voice rooms again), and READY's [calls] are
+  /// taken.
+  void reset([List<GatewayReadyActiveCall> calls = const []]) {
+    _rooms.clear();
+    _versions.clear();
+    for (final call in calls) {
+      for (final s in call.voiceStates ?? const <CallVoiceState>[]) {
+        _snapshot(VoiceParticipant(
+          userId: s.userId,
+          roomId: call.conversationId,
+          muted: s.muted,
+          deafened: s.deafened,
+          screenSharing: s.screenSharing,
+          camera: s.camera,
+          version: s.version,
+        ));
+      }
+    }
+  }
+
+  /// SPACE_CREATE: the space's voice rooms as the gateway has them now replace
+  /// what was known of them; an entry older than an update already applied
+  /// is left out.
+  void space(GatewaySpaceCreatePayload space) {
+    for (final roomId in space.rooms.keys) {
+      _rooms.remove(roomId);
+    }
+    for (final s in space.voiceStates ?? const <GatewayVoiceState>[]) {
+      _snapshot(VoiceParticipant(
+        userId: s.userId,
+        roomId: s.roomId,
+        muted: s.muted,
+        deafened: s.deafened,
+        screenSharing: s.screenSharing,
+        camera: s.camera,
+        version: s.version,
+      ));
+    }
+  }
+
+  /// A room that's gone, or a call that ended: the gateway sends no update
+  /// for the people who were in it.
+  void forget(String roomId) => _rooms.remove(roomId);
+
+  /// VOICE_STATE_UPDATE: answers whether it applied, false for one that came
+  /// after a newer one.
+  bool apply(VoiceStateEvent e) {
+    final key = '${e.roomId}:${e.userId}';
+    final last = _versions[key];
+    if (last != null && e.version < last) return false;
+    _versions[key] = e.version;
+    if (e.joined) {
+      (_rooms[e.roomId] ??= {})[e.userId] = VoiceParticipant(
+        userId: e.userId,
+        roomId: e.roomId,
+        muted: e.muted,
+        deafened: e.deafened,
+        screenSharing: e.screenSharing,
+        camera: e.camera,
+        version: e.version,
+      );
+    } else {
+      final room = _rooms[e.roomId];
+      room?.remove(e.userId);
+      if (room != null && room.isEmpty) _rooms.remove(e.roomId);
+    }
+    return true;
+  }
+
+  void _snapshot(VoiceParticipant p) {
+    final key = '${p.roomId}:${p.userId}';
+    final last = _versions[key];
+    if (last != null && p.version < last) return;
+    _versions[key] = p.version;
+    (_rooms[p.roomId] ??= {})[p.userId] = p;
+  }
+}
+
+/// Voice and call signalling over the gateway: the typed messages a client
+/// sends to be in a space's voice room or a conversation's call, and to
+/// negotiate its peer connection with the gateway, which forwards everyone's
+/// audio and video; and [voiceStates], kept from the gateway's events.
 ///
-/// ### Usage
+/// Each send answers whether the message went out: false while no socket is
+/// open (see [connection]), when it would be lost.
+///
+/// ### Joining a voice room
 /// ```dart
 /// final rtc = WebRTCController(manager);
-///
-/// // Subscribe to signalling events
-/// rtc.onVoiceJoined.listen((e) {
-///   // server confirms we joined; start WebRTC handshake here
-///   startPeerConnection(e.data.answer?.sdp);
+/// rtc.onVoiceJoined.listen((e) => pc.setRemoteDescription(e.data.answer));
+/// rtc.onRenegotiate.listen((e) async {
+///   // set e.data.offer, then answer it
+///   rtc.sendAnswer(e.data.roomId, answer);
 /// });
-///
-/// rtc.onIceCandidate.listen((e) {
-///   peerConnection.addIceCandidate(e.data.candidate);
-/// });
-///
-/// // Join a voice room
-/// rtc.joinVoiceRoom('room-id');
-///
-/// // … later, send ICE candidates back to the server
-/// rtc.sendIceCandidate(
-///   candidate: candidate.candidate,
-///   sdpMLineIndex: candidate.sdpMLineIndex,
-///   sdpMid: candidate.sdpMid,
-/// );
-///
-/// // Clean up
-/// rtc.dispose();
+/// rtc.joinVoice(roomId, offer, videoOff: true);
+/// rtc.syncVoice(roomId, muted: false, deafened: false, screenSharing: false,
+///     camera: false, videoOff: true);
 /// ```
+///
+/// ### Calls
+/// A call's voice is joined like a room's, with the conversation's ID as the
+/// room: after [initiateCall] once someone accepts (CALL_ACCEPTED), or after
+/// [acceptCall].
 class WebRTCController {
   final GatewayManager _manager;
   final List<StreamSubscription<dynamic>> _subs = [];
+  final _updates = StreamController<VoiceStateUpdatedEvent>.broadcast();
 
-  // Local voice-state cache
-  // Updated on every VOICE_STATE_UPDATE before the event is forwarded to
-  // the public stream so listeners always see consistent state.
-
-  final Map<String, Map<String, VoiceParticipant>> _voiceStates = {};
-
-  /// The room this client has actively joined, or `null` when not in voice.
-  String? _activeRoomId;
-  String? get activeRoomId => _activeRoomId;
-
-  final _voiceStateCtrl = StreamController<VoiceStateUpdatedEvent>.broadcast();
-  final _voiceJoinedCtrl =
-      StreamController<VoiceJoinedPayloadEvent>.broadcast();
-  final _iceCandidateCtrl =
-      StreamController<WebRTCIceCandidateEvent>.broadcast();
-  final _renegotiateCtrl = StreamController<WebRTCRenegotiateEvent>.broadcast();
-  final _renegotiateAnswerCtrl =
-      StreamController<WebRTCRenegotiateAnswerEvent>.broadcast();
-
-  /// Fires whenever a participant joins, leaves, or changes state in any
-  /// voice room.  The local [voiceStates] cache is updated *before* this
-  /// stream emits, so [participantsIn] will already reflect the new state.
-  Stream<VoiceStateUpdatedEvent> get onVoiceStateUpdate =>
-      _voiceStateCtrl.stream;
-
-  /// Fires when the server confirms the client has joined a voice room and
-  /// includes the initial SDP needed to start the WebRTC handshake.
-  Stream<VoiceJoinedPayloadEvent> get onVoiceJoined => _voiceJoinedCtrl.stream;
-
-  /// Fires when the server forwards an ICE candidate from a remote peer.
-  Stream<WebRTCIceCandidateEvent> get onIceCandidate =>
-      _iceCandidateCtrl.stream;
-
-  /// Fires when the server requests a WebRTC renegotiation (sends an SDP
-  /// offer that the client must answer).
-  Stream<WebRTCRenegotiateEvent> get onRenegotiate => _renegotiateCtrl.stream;
-
-  /// Fires when the server sends back a renegotiation SDP answer.
-  Stream<WebRTCRenegotiateAnswerEvent> get onRenegotiateAnswer =>
-      _renegotiateAnswerCtrl.stream;
+  /// Who's in voice where, as the gateway reports it.
+  final voiceStates = VoiceStates();
 
   WebRTCController(this._manager) {
-    _subs.add(
-      _manager.onVoiceStateUpdate.listen(_handleVoiceStateUpdate),
-    );
-    _subs.add(
-      _manager.onVoiceJoin.listen(_voiceJoinedCtrl.add),
-    );
-    _subs.add(
-      _manager.onIceCandidate.listen(_iceCandidateCtrl.add),
-    );
-    _subs.add(
-      _manager.onRenegotiate.listen(_renegotiateCtrl.add),
-    );
-    _subs.add(
-      _manager.onRenegotiateAnswer.listen(_renegotiateAnswerCtrl.add),
-    );
+    _subs.add(_manager.onEvent.listen(_handle));
   }
 
-  void _handleVoiceStateUpdate(VoiceStateUpdatedEvent event) {
-    final d = event.data;
-    final roomMap = _voiceStates.putIfAbsent(d.roomId, () => {});
-
-    if (d.joined) {
-      final existing = roomMap[d.userId];
-      if (existing != null) {
-        // Participant already present — update mute/deafen/screen-share flags
-        // without touching userId / roomId (mirrors the TS existingIdx branch).
-        roomMap[d.userId] = existing.copyWith(
-          muted: d.muted ?? existing.muted,
-          deafened: d.deafened ?? existing.deafened,
-          screenSharing: d.screenSharing ?? existing.screenSharing,
-        );
-      } else {
-        // New participant joined
-        roomMap[d.userId] = VoiceParticipant(
-          userId: d.userId,
-          roomId: d.roomId,
-          muted: d.muted ?? false,
-          deafened: d.deafened ?? false,
-          screenSharing: d.screenSharing ?? false,
-        );
-      }
-    } else {
-      // Participant left
-      roomMap.remove(d.userId);
-      if (roomMap.isEmpty) _voiceStates.remove(d.roomId);
+  void _handle(GatewayEventPayload event) {
+    switch (event) {
+      case ReadyEvent(:final data):
+        voiceStates.reset(data.activeCalls ?? const []);
+      case SpaceCreateEvent(:final data):
+        voiceStates.space(data);
+      case VoiceStateUpdatedEvent(:final data):
+        if (voiceStates.apply(data) && !_updates.isClosed) _updates.add(event);
+      case CallEndedPayloadEvent(:final data):
+        voiceStates.forget(data.conversationId);
+      case RoomDeletedEvent(:final data):
+        voiceStates.forget(data.id);
+      default:
     }
-
-    // Forward to public stream after state is already consistent.
-    if (!_voiceStateCtrl.isClosed) _voiceStateCtrl.add(event);
   }
 
-  /// Returns all currently-tracked voice states, keyed by room ID.
-  ///
-  /// The inner map is keyed by user ID.  Both maps are unmodifiable copies.
-  Map<String, Map<String, VoiceParticipant>> get voiceStates =>
-      Map.unmodifiable(_voiceStates.map(
-        (roomId, users) => MapEntry(roomId, Map.unmodifiable(users)),
-      ));
+  /// The VOICE_STATE_UPDATEs that changed [voiceStates], which is up to date
+  /// when they arrive; late ones are left out.
+  Stream<VoiceStateUpdatedEvent> get onVoiceStateUpdate => _updates.stream;
 
-  /// Returns the list of participants currently in [roomId].
-  /// Returns an empty list when nobody is in that room.
-  List<VoiceParticipant> participantsIn(String roomId) =>
-      List.unmodifiable(_voiceStates[roomId]?.values as Iterable<dynamic>);
+  /// The gateway's answer to [joinVoice]: apply it before any renegotiation.
+  Stream<VoiceJoinedPayloadEvent> get onVoiceJoined => _manager.onVoiceJoin;
 
-  // Outbound send methods
-  //
-  // These mirror the TypeScript sendEventMessage() call-sites that appear
-  // inside VOICE_STATE_UPDATE, VOICE_JOINED, and the WebRTC cases.
+  /// The gateway's ICE candidates.
+  Stream<WebRTCIceCandidateEvent> get onIceCandidate => _manager.onIceCandidate;
 
-  /// Sends a `join_voice` event to enter [roomId].
-  ///
-  /// The server responds with a [VoiceJoinedPayloadEvent] containing the
-  /// initial SDP needed to open the peer connection.
-  void joinVoiceRoom(String roomId) {
-    _activeRoomId = roomId;
-    _manager.sendMessage('join_voice', {'room_id': roomId});
+  /// The gateway's offers, to answer with [sendAnswer].
+  Stream<WebRTCRenegotiateEvent> get onRenegotiate => _manager.onRenegotiate;
+
+  /// The gateway's answers to [sendRenegotiateOffer].
+  Stream<WebRTCRenegotiateAnswerEvent> get onRenegotiateAnswer =>
+      _manager.onRenegotiateAnswer;
+
+  /// This session's voice in a room or call ended: another device took it,
+  /// or the user lost access.
+  Stream<VoiceSessionReplacedPayloadEvent> get onVoiceSessionReplaced =>
+      _manager.onVoiceSessionReplaced;
+
+  Stream<CallIncomingPayloadEvent> get onCallIncoming =>
+      _manager.onCallIncoming;
+  Stream<CallAcceptedEvent> get onCallAccepted => _manager.onCallAccept;
+  Stream<CallDeclinedEvent> get onCallDeclined => _manager.onCallDecline;
+  Stream<CallEndedPayloadEvent> get onCallEnded => _manager.onCallEnd;
+
+  /// The number of the gateway socket open now, or null while none is:
+  /// [GatewayManager.connection].
+  int? get connection => _manager.connection;
+
+  /// How long the gateway had been silent before the last READY:
+  /// [GatewayManager.silenceBeforeReady]. A client back from a long silence
+  /// (the device slept) may rather not rejoin voice by surprise.
+  Duration get silenceBeforeReady => _manager.silenceBeforeReady;
+
+  // Voice --------------------------------------------------------------------
+
+  /// VOICE_JOIN: joins [roomId] (a voice room, or a call's conversation) with
+  /// the peer connection's [offer]. [tracks] tags the transceivers that send
+  /// a camera, by mid (`{"1": "camera"}`); [videoOff] receives no video at
+  /// all. The gateway answers with VOICE_JOINED, or with nothing when it
+  /// refuses.
+  bool joinVoice(String roomId, SessionDescription offer,
+          {Map<String, String> tracks = const {}, bool videoOff = false}) =>
+      _send('VOICE_JOIN', {
+        'room_id': roomId,
+        'offer': offer.toJson(),
+        if (tracks.isNotEmpty) 'tracks': tracks,
+        'video_off': videoOff,
+      });
+
+  /// VOICE_LEAVE: leaves [roomId]'s voice. The gateway ignores it when the
+  /// user's voice there is another device's.
+  bool leaveVoice(String roomId) => _send('VOICE_LEAVE', {'room_id': roomId});
+
+  /// VOICE_SYNC: the client's whole voice state in [roomId]. The gateway
+  /// replaces its state with each one, so every field is required: one left
+  /// out would turn that off.
+  bool syncVoice(
+    String roomId, {
+    required bool muted,
+    required bool deafened,
+    required bool screenSharing,
+    required bool camera,
+    required bool videoOff,
+  }) =>
+      _send('VOICE_SYNC', {
+        'room_id': roomId,
+        'muted': muted,
+        'deafened': deafened,
+        'screen_sharing': screenSharing,
+        'camera': camera,
+        'video_off': videoOff,
+      });
+
+  /// WEBRTC_ICE_CANDIDATE: one of the peer connection's ICE candidates.
+  bool sendIceCandidate(String roomId, IceCandidateInit candidate) =>
+      _send('WEBRTC_ICE_CANDIDATE', {
+        'room_id': roomId,
+        'candidate': candidate.toJson(),
+      });
+
+  /// WEBRTC_ANSWER: the answer to the gateway's offer (WEBRTC_RENEGOTIATE).
+  bool sendAnswer(String roomId, SessionDescription answer) =>
+      _send('WEBRTC_ANSWER', {'room_id': roomId, 'answer': answer.toJson()});
+
+  /// WEBRTC_RENEGOTIATE_OFFER: the client's own renegotiation (it added or
+  /// removed a track); the gateway answers with WEBRTC_RENEGOTIATE_ANSWER.
+  /// [tracks] tags new camera transceivers, as in [joinVoice].
+  bool sendRenegotiateOffer(String roomId, SessionDescription offer,
+          {Map<String, String> tracks = const {}}) =>
+      _send('WEBRTC_RENEGOTIATE_OFFER', {
+        'room_id': roomId,
+        'offer': offer.toJson(),
+        if (tracks.isNotEmpty) 'tracks': tracks,
+      });
+
+  // Calls --------------------------------------------------------------------
+
+  /// CALL_INITIATE: rings [memberIds] (the conversation's members; the caller
+  /// is left out of the ringing) with CALL_INCOMING. A call already going on
+  /// in the conversation is left as it is.
+  bool initiateCall(String conversationId, List<String> memberIds) =>
+      _send('CALL_INITIATE', {
+        'conversation_id': conversationId,
+        'member_ids': memberIds,
+      });
+
+  /// CALL_ACCEPT: answers a call; everyone in it gets CALL_ACCEPTED.
+  bool acceptCall(String conversationId) =>
+      _send('CALL_ACCEPT', {'conversation_id': conversationId});
+
+  /// CALL_DECLINE: turns a call down; its caller gets CALL_DECLINED, and the
+  /// call ends (CALL_ENDED) once everyone declined.
+  bool declineCall(String conversationId) =>
+      _send('CALL_DECLINE', {'conversation_id': conversationId});
+
+  /// CALL_CANCEL: the caller hangs up before anyone answered; the call ends.
+  bool cancelCall(String conversationId) =>
+      _send('CALL_CANCEL', {'conversation_id': conversationId});
+
+  /// CALL_LEAVE: leaves a call's voice; the call ends when nobody's left.
+  bool leaveCall(String conversationId) =>
+      _send('CALL_LEAVE', {'conversation_id': conversationId});
+
+  bool _send(String type, Map<String, dynamic> data) {
+    try {
+      return _manager.sendMessage(type, data);
+    } on StateError {
+      // No shard yet: nothing could go out.
+      return false;
+    }
   }
 
-  /// Sends a `leave_voice` event to exit the current voice room.
-  /// Does nothing if the client is not currently in a voice room.
-  void leaveVoiceRoom() {
-    final roomId = _activeRoomId;
-    if (roomId == null) return;
-    _manager.sendMessage('leave_voice', {'room_id': roomId});
-    _activeRoomId = null;
-  }
-
-  /// Sends a `VOICE_STATE_UPDATE` event to change the local client's
-  /// mute / deafen / screen-sharing state on the server.
-  ///
-  /// Only the provided fields are included in the payload; omitted fields
-  /// are left unchanged server-side.
-  void updateVoiceState({
-    bool? muted,
-    bool? deafened,
-    bool? screenSharing,
-  }) {
-    _manager.sendMessage('VOICE_STATE_UPDATE', {
-      if (muted != null) 'muted': muted,
-      if (deafened != null) 'deafened': deafened,
-      if (screenSharing != null) 'screen_sharing': screenSharing,
-    });
-  }
-
-  /// Sends a `WEBRTC_ICE_CANDIDATE` event to the server.
-  ///
-  /// Call this for every ICE candidate produced by the local
-  /// `RTCPeerConnection.onIceCandidate` callback.
-  void sendIceCandidate({
-    required String candidate,
-    required int sdpMLineIndex,
-    required String sdpMid,
-  }) {
-    _manager.sendMessage('WEBRTC_ICE_CANDIDATE', {
-      'candidate': candidate,
-      'sdpMLineIndex': sdpMLineIndex,
-      'sdpMid': sdpMid,
-    });
-  }
-
-  /// Sends a `WEBRTC_RENEGOTIATE` event containing the local SDP offer.
-  ///
-  /// Use this when the local peer connection needs to renegotiate
-  /// (e.g. after adding a screen-share track).
-  void sendRenegotiate(String sdp) {
-    _manager.sendMessage('WEBRTC_RENEGOTIATE', {'sdp': sdp});
-  }
-
-  /// Sends a `WEBRTC_RENEGOTIATE_ANSWER` event containing the local SDP
-  /// answer in response to a [WebRTCRenegotiateEvent] from the server.
-  void sendRenegotiateAnswer(String sdp) {
-    _manager.sendMessage('WEBRTC_RENEGOTIATE_ANSWER', {'sdp': sdp});
-  }
-
-  // Incoming call helpers
-  //
-  // The TypeScript `activeCall` / `callVoiceStates` stores are app-level
-  // concerns; the library just exposes the raw events and the send helpers
-  // so Flutter / CLI consumers can build their own state on top.
-
-  /// Sends a `call_accept` event for [conversationId].
-  void acceptCall(String conversationId) {
-    _manager.sendMessage('call_accept', {
-      'conversation_id': conversationId,
-    });
-  }
-
-  /// Sends a `call_decline` event for [conversationId].
-  void declineCall(String conversationId) {
-    _manager.sendMessage('call_decline', {
-      'conversation_id': conversationId,
-    });
-  }
-
-  /// Sends a `call_end` event for [conversationId].
-  void endCall(String conversationId) {
-    _manager.sendMessage('call_end', {
-      'conversation_id': conversationId,
-    });
-  }
-
-  /// Cancels all gateway subscriptions and closes the internal broadcast
-  /// streams.  After calling this the controller must not be reused.
+  /// Cancels the gateway subscriptions and closes [onVoiceStateUpdate]. After
+  /// this the controller must not be reused.
   void dispose() {
     for (final sub in _subs) {
       sub.cancel();
     }
     _subs.clear();
-    _voiceStates.clear();
-    _activeRoomId = null;
-    _voiceStateCtrl.close();
-    _voiceJoinedCtrl.close();
-    _iceCandidateCtrl.close();
-    _renegotiateCtrl.close();
-    _renegotiateAnswerCtrl.close();
+    _updates.close();
   }
 }

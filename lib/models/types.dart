@@ -1,3 +1,5 @@
+import 'dart:convert' show jsonDecode;
+
 import 'package:duvet_client/utils/util.dart';
 part 'gateway_envelope.dart';
 part 'rest_types.dart';
@@ -683,27 +685,38 @@ class GatewayUser {
 // Voice
 // ---------------------------------------------------------------------------
 
+/// Someone in a space's voice room, as SPACE_CREATE lists them.
 class GatewayVoiceState {
   final String roomId;
   final String userId;
-  final bool? muted;
-  final bool? deafened;
-  final bool? screenSharing;
+  final bool muted;
+  final bool deafened;
+  final bool screenSharing;
+
+  /// Their camera is on.
+  final bool camera;
+
+  /// Orders this state among VOICE_STATE_UPDATEs: see [VoiceStateEvent].
+  final int version;
 
   const GatewayVoiceState({
     required this.roomId,
     required this.userId,
-    this.muted,
-    this.deafened,
-    this.screenSharing,
+    this.muted = false,
+    this.deafened = false,
+    this.screenSharing = false,
+    this.camera = false,
+    this.version = 0,
   });
 
   GatewayVoiceState.fromJson(Map<String, dynamic> j)
       : roomId = j['room_id'] as String,
         userId = j['user_id'] as String,
-        muted = j['muted'] as bool?,
-        deafened = j['deafened'] as bool?,
-        screenSharing = j['screen_sharing'] as bool?;
+        muted = j['muted'] as bool? ?? false,
+        deafened = j['deafened'] as bool? ?? false,
+        screenSharing = j['screen_sharing'] as bool? ?? false,
+        camera = j['camera'] as bool? ?? false,
+        version = j['version'] as int? ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -1328,6 +1341,9 @@ class CallVoiceState {
   final bool muted;
   final bool deafened;
   final bool screenSharing;
+
+  /// Their camera is on.
+  final bool camera;
   final int version;
 
   const CallVoiceState({
@@ -1335,6 +1351,7 @@ class CallVoiceState {
     this.muted = false,
     this.deafened = false,
     this.screenSharing = false,
+    this.camera = false,
     this.version = 0,
   });
 
@@ -1343,7 +1360,38 @@ class CallVoiceState {
         muted = j['muted'] as bool? ?? false,
         deafened = j['deafened'] as bool? ?? false,
         screenSharing = j['screen_sharing'] as bool? ?? false,
+        camera = j['camera'] as bool? ?? false,
         version = j['version'] as int? ?? 0;
+}
+
+/// A STUN or TURN server for a peer connection, as READY hands them out: the
+/// STUN server, and the TURN relay with credentials of the user's own (the
+/// TURN REST API's: a username `<expiry>:<user_id>` and its password).
+class IceServer {
+  final List<String> urls;
+  final String? username;
+  final String? credential;
+
+  const IceServer({required this.urls, this.username, this.credential});
+
+  /// `urls` may be one URL or a list; a credential that isn't a password
+  /// (an OAuth one) is left out.
+  IceServer.fromJson(Map<String, dynamic> j)
+      : urls = switch (j['urls']) {
+          final String url => [url],
+          final List<dynamic> list => [for (final u in list) u as String],
+          _ => const [],
+        },
+        username = j['username'] as String?,
+        credential =
+            j['credential'] is String ? j['credential'] as String : null;
+
+  /// As a peer connection's configuration takes it.
+  Map<String, dynamic> toJson() => {
+        'urls': urls,
+        if (username != null) 'username': username,
+        if (credential != null) 'credential': credential,
+      };
 }
 
 class GatewayReadyActiveCall {
@@ -1375,6 +1423,9 @@ class GatewayReadyData {
   final List<GatewayReadyActiveCall>? activeCalls;
   final List<GatewaySpace>? spaces;
 
+  /// The STUN and TURN servers for voice and calls; none in a bot's READY.
+  final List<IceServer> iceServers;
+
   const GatewayReadyData({
     required this.user,
     required this.sessionToken,
@@ -1384,6 +1435,7 @@ class GatewayReadyData {
     this.unreadConvs,
     this.activeCalls,
     this.spaces,
+    this.iceServers = const [],
   });
 
   GatewayReadyData.fromJson(Map<String, dynamic> j)
@@ -1405,7 +1457,11 @@ class GatewayReadyData {
             .toList(),
         spaces = (j['spaces'] as List<dynamic>?)
             ?.map((e) => GatewaySpace.fromJson(e as Map<String, dynamic>))
-            .toList();
+            .toList(),
+        iceServers = [
+          for (final s in j['ice_servers'] as List<dynamic>? ?? const [])
+            IceServer.fromJson(s as Map<String, dynamic>),
+        ];
 }
 
 // ---------------------------------------------------------------------------
@@ -1573,28 +1629,43 @@ class UserUpdateEvent {
         banner = j['banner'] as String?;
 }
 
+/// VOICE_STATE_UPDATE: a user's whole voice state in a space's voice room or
+/// a conversation's call (then [roomId] is the conversation's ID), or that
+/// they left it ([joined] false).
+///
+/// [version] grows with every change in any room, and survives the gateway's
+/// restarts: an update older than one already applied came late, and is
+/// dropped ([VoiceStates] does).
 class VoiceStateEvent {
   final String roomId;
   final String userId;
   final bool joined;
-  final bool? muted;
-  final bool? deafened;
-  final bool? screenSharing;
+  final bool muted;
+  final bool deafened;
+  final bool screenSharing;
+
+  /// Their camera is on.
+  final bool camera;
+  final int version;
   const VoiceStateEvent({
     required this.roomId,
     required this.userId,
     required this.joined,
-    this.muted,
-    this.deafened,
-    this.screenSharing,
+    this.muted = false,
+    this.deafened = false,
+    this.screenSharing = false,
+    this.camera = false,
+    this.version = 0,
   });
   VoiceStateEvent.fromJson(Map<String, dynamic> j)
       : roomId = j['room_id'] as String,
         userId = j['user_id'] as String,
-        joined = j['joined'] as bool,
-        muted = j['muted'] as bool?,
-        deafened = j['deafened'] as bool?,
-        screenSharing = j['screen_sharing'] as bool?;
+        joined = j['joined'] as bool? ?? false,
+        muted = j['muted'] as bool? ?? false,
+        deafened = j['deafened'] as bool? ?? false,
+        screenSharing = j['screen_sharing'] as bool? ?? false,
+        camera = j['camera'] as bool? ?? false,
+        version = j['version'] as int? ?? 0;
 }
 
 /// A WebRTC session description: an offer or an answer.
@@ -1606,9 +1677,41 @@ class SessionDescription {
   SessionDescription.fromJson(Map<String, dynamic> j)
       : type = j['type'] as String,
         sdp = j['sdp'] as String;
+
+  Map<String, dynamic> toJson() => {'type': type, 'sdp': sdp};
 }
 
-/// VOICE_JOINED: the gateway's answer to joining a voice room.
+/// An ICE candidate, as `RTCIceCandidateInit` (and pion's `ICECandidateInit`)
+/// write it.
+class IceCandidateInit {
+  /// The `candidate:` attribute line.
+  final String candidate;
+  final String? sdpMid;
+  final int? sdpMLineIndex;
+  final String? usernameFragment;
+
+  const IceCandidateInit({
+    required this.candidate,
+    this.sdpMid,
+    this.sdpMLineIndex,
+    this.usernameFragment,
+  });
+
+  IceCandidateInit.fromJson(Map<String, dynamic> j)
+      : candidate = j['candidate'] as String? ?? '',
+        sdpMid = j['sdpMid'] as String?,
+        sdpMLineIndex = j['sdpMLineIndex'] as int?,
+        usernameFragment = j['usernameFragment'] as String?;
+
+  Map<String, dynamic> toJson() => {
+        'candidate': candidate,
+        if (sdpMid != null) 'sdpMid': sdpMid,
+        if (sdpMLineIndex != null) 'sdpMLineIndex': sdpMLineIndex,
+        if (usernameFragment != null) 'usernameFragment': usernameFragment,
+      };
+}
+
+/// VOICE_JOINED: the gateway's answer to joining a voice room or a call.
 class VoiceJoinedEvent {
   final String roomId;
   final SessionDescription? answer;
@@ -1620,18 +1723,69 @@ class VoiceJoinedEvent {
             : null;
 }
 
-class WebRTCEvent {
-  final String? candidate;
-  final int? sdpMLineIndex;
-  final String? sdpMid;
-  final String? sdp;
-  const WebRTCEvent(
-      {this.candidate, this.sdpMLineIndex, this.sdpMid, this.sdp});
-  WebRTCEvent.fromJson(Map<String, dynamic> j)
-      : candidate = j['candidate'] as String?,
-        sdpMLineIndex = j['sdpMLineIndex'] as int?,
-        sdpMid = j['sdpMid'] as String?,
-        sdp = j['sdp'] as String?;
+/// WEBRTC_ICE_CANDIDATE: one of the gateway's ICE candidates for the peer
+/// connection of a room or call.
+class IceCandidateEvent {
+  final String roomId;
+  final IceCandidateInit candidate;
+  const IceCandidateEvent({required this.roomId, required this.candidate});
+
+  /// The gateway sends the candidate as a JSON string of its
+  /// `ICECandidateInit`; an object, or a bare `candidate:` line, is taken too.
+  IceCandidateEvent.fromJson(Map<String, dynamic> j)
+      : roomId = j['room_id'] as String,
+        candidate = _candidate(j['candidate']);
+
+  static IceCandidateInit _candidate(Object? raw) {
+    if (raw is Map<String, dynamic>) return IceCandidateInit.fromJson(raw);
+    final text = raw as String? ?? '';
+    if (text.trimLeft().startsWith('{')) {
+      try {
+        return IceCandidateInit.fromJson(
+            jsonDecode(text) as Map<String, dynamic>);
+      } on FormatException {
+        // Not JSON after all: the line itself.
+      }
+    }
+    return IceCandidateInit(candidate: text);
+  }
+}
+
+/// WEBRTC_RENEGOTIATE: the gateway's offer for a room's or call's peer
+/// connection (other people's tracks come and go, or an ICE restart): the
+/// client answers it with WEBRTC_ANSWER.
+class RenegotiateOfferEvent {
+  final String roomId;
+  final SessionDescription offer;
+  const RenegotiateOfferEvent({required this.roomId, required this.offer});
+  RenegotiateOfferEvent.fromJson(Map<String, dynamic> j)
+      : roomId = j['room_id'] as String,
+        offer = SessionDescription.fromJson(j['offer'] as Map<String, dynamic>);
+}
+
+/// WEBRTC_RENEGOTIATE_ANSWER: the gateway's answer to the client's own
+/// renegotiation (WEBRTC_RENEGOTIATE_OFFER).
+class RenegotiateAnswerEvent {
+  final String roomId;
+  final SessionDescription? answer;
+  const RenegotiateAnswerEvent({required this.roomId, this.answer});
+  RenegotiateAnswerEvent.fromJson(Map<String, dynamic> j)
+      : roomId = j['room_id'] as String,
+        answer = j['answer'] != null
+            ? SessionDescription.fromJson(j['answer'] as Map<String, dynamic>)
+            : null;
+}
+
+/// VOICE_SESSION_REPLACED: this session is no longer in a room or call's
+/// voice. Another device of the user's joined it ([reason] null), or the user
+/// lost the right to be there ([reason] "permissions").
+class VoiceSessionReplacedEvent {
+  final String roomId;
+  final String? reason;
+  const VoiceSessionReplacedEvent({required this.roomId, this.reason});
+  VoiceSessionReplacedEvent.fromJson(Map<String, dynamic> j)
+      : roomId = j['room_id'] as String,
+        reason = j['reason'] as String?;
 }
 
 class RoleDeleteEvent {
@@ -2047,18 +2201,23 @@ class VoiceJoinedPayloadEvent extends GatewayEventPayload {
 }
 
 class WebRTCIceCandidateEvent extends GatewayEventPayload {
-  final WebRTCEvent data;
+  final IceCandidateEvent data;
   const WebRTCIceCandidateEvent(this.data);
 }
 
 class WebRTCRenegotiateEvent extends GatewayEventPayload {
-  final WebRTCEvent data;
+  final RenegotiateOfferEvent data;
   const WebRTCRenegotiateEvent(this.data);
 }
 
 class WebRTCRenegotiateAnswerEvent extends GatewayEventPayload {
-  final WebRTCEvent data;
+  final RenegotiateAnswerEvent data;
   const WebRTCRenegotiateAnswerEvent(this.data);
+}
+
+class VoiceSessionReplacedPayloadEvent extends GatewayEventPayload {
+  final VoiceSessionReplacedEvent data;
+  const VoiceSessionReplacedPayloadEvent(this.data);
 }
 
 class RoleCreatedEvent extends GatewayEventPayload {

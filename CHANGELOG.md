@@ -1,7 +1,9 @@
 ## 1.0.1 – 2026-10-23
 
-What the Duvet mobile app needs, and a gateway connection that recovers from
-network changes. **One breaking change**: `createSpace` answers the new space.
+What the Duvet mobile app needs, a gateway connection that recovers from
+network changes, and voice and call signalling as the gateway speaks it.
+**Breaking changes**: `createSpace` answers the new space, and the voice and
+call API changed (it never matched the gateway, so nothing could have used it).
 
 ### Breaking changes
 
@@ -14,6 +16,24 @@ network changes. **One breaking change**: `createSpace` answers the new space.
 - A new event, `DMMentionCreatedEvent`, joins the sealed
   `GatewayEventPayload`: a `switch` over it without a default case has to
   handle it.
+- **Voice and calls, as the gateway speaks them** (`WebRTCController` sent
+  `join_voice`, `leave_voice`, `call_accept` and other names the gateway
+  ignores, and read its events' data wrongly):
+  - `WebRTCController`'s sends are now `joinVoice`, `leaveVoice`,
+    `syncVoice` (the whole state, every field required: the gateway turns off
+    what a VOICE_SYNC leaves out), `sendIceCandidate`, `sendAnswer`,
+    `sendRenegotiateOffer`, `initiateCall`, `acceptCall`, `declineCall`,
+    `cancelCall` and `leaveCall`; each answers whether the message went out.
+    `joinVoiceRoom`, `leaveVoiceRoom`, `updateVoiceState`, `sendRenegotiate`,
+    `sendRenegotiateAnswer` and `activeRoomId` are gone.
+  - `WebRTCEvent` is gone. WEBRTC_ICE_CANDIDATE's data is an
+    `IceCandidateEvent` (its `candidate` an `IceCandidateInit`, parsed from the
+    JSON string the gateway sends), WEBRTC_RENEGOTIATE's a
+    `RenegotiateOfferEvent` (its `offer`), WEBRTC_RENEGOTIATE_ANSWER's a
+    `RenegotiateAnswerEvent` (its `answer`).
+  - `VoiceStateEvent`'s and `GatewayVoiceState`'s `muted`, `deafened` and
+    `screenSharing` are `bool` (were `bool?`: the gateway always sends them).
+  - `WebRTCController.participantsIn` no longer throws for an empty room.
 
 ### Fixed
 
@@ -50,6 +70,30 @@ network changes. **One breaking change**: `createSpace` answers the new space.
 
 ### Added
 
+- Voice and calls:
+  - `VoiceStates`: who's in voice in every room and call, from READY's calls,
+    each SPACE_CREATE's voice rooms and every VOICE_STATE_UPDATE, kept in
+    version order (an update older than one applied is dropped, as the
+    desktop app drops it). `WebRTCController.voiceStates` keeps one, and
+    `onVoiceStateUpdate` passes on only the updates it applied.
+  - `camera` and `version` on `VoiceStateEvent`, `GatewayVoiceState` and
+    `CallVoiceState`.
+  - READY's `ice_servers` as `GatewayReadyData.iceServers` (`IceServer`:
+    `urls`, `username`, `credential`, and `toJson()` as a peer connection's
+    configuration takes it): the STUN server, and the TURN relay with the
+    user's own credentials.
+  - VOICE_SESSION_REPLACED (`VoiceSessionReplacedPayloadEvent`, a
+    `VoiceSessionReplacedEvent` with `roomId` and `reason`), and
+    `GatewayEvents.onVoiceSessionReplaced`: another device took the voice, or
+    the user lost access to the room.
+  - `SessionDescription.toJson()` and `IceCandidateInit`.
+  - `GatewayClient.connection` and `GatewayManager.connection`: the number of
+    the open socket (each one gets a READY: the client doesn't resume), or
+    null while none is open. `silenceBeforeReady`: how long the gateway was
+    silent (no event, no heartbeat ack) before the last READY, taken as READY
+    comes.
+  - `GatewayClient.sendMessage` and `GatewayManager.sendMessage` answer
+    whether the message went out (they answered nothing).
 - `GatewayConnectionState` (`connecting`, `connected`, `reconnecting`,
   `disconnected`): `GatewayManager.onConnectionState`, and
   `GatewayClient.onConnectionState` and `connectionState`. READY comes again
@@ -90,6 +134,17 @@ network changes. **One breaking change**: `createSpace` answers the new space.
 
 ### Tests
 
+- `test/voice_test.dart`: `VoiceStates` in version order (late updates, a
+  leave then a late join, READY's calls, SPACE_CREATE that doesn't bring back
+  older states), and, against a fake gateway on 127.0.0.1, every voice and
+  call message as `payload.go` reads it, the voice states and fresh updates,
+  `silenceBeforeReady` (bound to READY, whatever comes after it), and a new
+  socket's number. `test/models_test.dart`:
+  READY's ICE servers, the voice events' new fields, the ICE candidate as a
+  JSON string, VOICE_SESSION_REPLACED with and without a reason.
+- `voice_session_replaced_event` fixtures, from the gateway
+  (`tool/fixtures/gateway_fixtures_test.go.tmpl`); the other gateway fixtures
+  are unchanged against the gateway's `dev` (19e7e1d).
 - `test/gateway_test.dart`, against a fake gateway on 127.0.0.1: identifying
   with the token and hearing READY; a dropped socket replaced by one new
   socket; the first connection trying again past refusals; an attempt that

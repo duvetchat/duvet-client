@@ -61,12 +61,15 @@ class GatewayEnvelope {
         return VoiceStateUpdatedEvent(VoiceStateEvent.fromJson(d));
       case 'VOICE_JOINED':
         return VoiceJoinedPayloadEvent(VoiceJoinedEvent.fromJson(d));
+      case 'VOICE_SESSION_REPLACED':
+        return VoiceSessionReplacedPayloadEvent(
+            VoiceSessionReplacedEvent.fromJson(d));
       case 'WEBRTC_ICE_CANDIDATE':
-        return WebRTCIceCandidateEvent(WebRTCEvent.fromJson(d));
+        return WebRTCIceCandidateEvent(IceCandidateEvent.fromJson(d));
       case 'WEBRTC_RENEGOTIATE':
-        return WebRTCRenegotiateEvent(WebRTCEvent.fromJson(d));
+        return WebRTCRenegotiateEvent(RenegotiateOfferEvent.fromJson(d));
       case 'WEBRTC_RENEGOTIATE_ANSWER':
-        return WebRTCRenegotiateAnswerEvent(WebRTCEvent.fromJson(d));
+        return WebRTCRenegotiateAnswerEvent(RenegotiateAnswerEvent.fromJson(d));
       case 'ROLE_CREATE':
         return RoleCreatedEvent(GatewayRole.fromJson(d));
       case 'ROLE_UPDATE':

@@ -260,6 +260,7 @@ void main() {
       'USER_STATUS_UPDATE': ('user_status_update_event', []),
       'VOICE_STATE_UPDATE': ('voice_state_update_event', []),
       'VOICE_JOINED': ('voice_joined_event', []),
+      'VOICE_SESSION_REPLACED': ('voice_session_replaced_event', []),
       'WEBRTC_ICE_CANDIDATE': ('webrtc_ice_candidate_event', []),
       'WEBRTC_RENEGOTIATE': ('webrtc_renegotiate_event', []),
       'WEBRTC_RENEGOTIATE_ANSWER': ('webrtc_renegotiate_answer_event', []),
@@ -376,6 +377,202 @@ void main() {
 
     test('an event the client doesn\'t know', () {
       expect(dispatch('SOMETHING_NEW', {'a': 1}), isA<UnknownEvent>());
+    });
+  });
+
+  group('voice and calls', () {
+    GatewayEventPayload? dispatch(String type, Map<String, dynamic> data) =>
+        GatewayEnvelope.fromJson({
+          'event': 'payload',
+          'op': 1,
+          'd': {'type': type, 'data': data},
+          's': 7,
+        }).d;
+
+    test('READY: the ICE servers, STUN and TURN with its credentials', () {
+      final full =
+          dispatch('READY', _load('ready_event', 'full')) as ReadyEvent;
+      final server = full.data.iceServers.single;
+      expect(server.urls, ['s-string']);
+      expect(server.username, 's-string');
+      // pion's credential is `any`: the fixture leaves it out.
+      expect(server.credential, isNull);
+
+      // As the gateway sends them: the STUN server, then the relay.
+      final json = {
+        ..._load('ready_event', 'nulls'),
+        'ice_servers': [
+          {
+            'urls': ['stun:stun.l.google.com:19302'],
+            'credentialType': 'password',
+          },
+          {
+            'urls': [
+              'turn:turn.duvet.chat:3478?transport=udp',
+              'turns:turn.duvet.chat:5349?transport=tcp',
+            ],
+            'username': '1761300000:u1',
+            'credential': 'c2VjcmV0',
+            'credentialType': 'password',
+          },
+        ],
+      };
+      final ready = dispatch('READY', json) as ReadyEvent;
+      expect(ready.data.iceServers.map((s) => s.toJson()), [
+        {
+          'urls': ['stun:stun.l.google.com:19302'],
+        },
+        {
+          'urls': [
+            'turn:turn.duvet.chat:3478?transport=udp',
+            'turns:turn.duvet.chat:5349?transport=tcp',
+          ],
+          'username': '1761300000:u1',
+          'credential': 'c2VjcmV0',
+        },
+      ]);
+
+      final nulls =
+          dispatch('READY', _load('ready_event', 'nulls')) as ReadyEvent;
+      expect(nulls.data.iceServers, isEmpty);
+      final bot =
+          dispatch('READY', _load('bot_ready_event', 'full')) as ReadyEvent;
+      expect(bot.data.iceServers, isEmpty);
+    });
+
+    test('an ICE server with one URL, or an OAuth credential', () {
+      final s = IceServer.fromJson({
+        'urls': 'stun:example.invalid',
+        'credential': {'macKey': 'k', 'accessToken': 't'},
+      });
+      expect(s.urls, ['stun:example.invalid']);
+      expect(s.credential, isNull);
+    });
+
+    test('READY: a call\'s voice states have their camera and version', () {
+      final e = dispatch('READY', _load('ready_event', 'full')) as ReadyEvent;
+      final state = e.data.activeCalls!.single.voiceStates!.single;
+      expect((state.camera, state.version), (true, 2));
+    });
+
+    test('SPACE_CREATE: the voice rooms\' states', () {
+      final e = dispatch('SPACE_CREATE', _load('space_create_event', 'full'))
+          as SpaceCreateEvent;
+      final state = e.data.voiceStates!.single;
+      expect((state.muted, state.camera, state.version), (true, true, 2));
+      final nulls =
+          dispatch('SPACE_CREATE', _load('space_create_event', 'nulls'))
+              as SpaceCreateEvent;
+      expect(nulls.data.voiceStates, isEmpty);
+    });
+
+    test('VOICE_STATE_UPDATE: the whole state, with its version', () {
+      final joined = dispatch(
+              'VOICE_STATE_UPDATE', _load('voice_state_update_event', 'full'))
+          as VoiceStateUpdatedEvent;
+      expect((
+        joined.data.joined,
+        joined.data.muted,
+        joined.data.deafened,
+        joined.data.screenSharing,
+        joined.data.camera,
+        joined.data.version,
+      ), (
+        true,
+        true,
+        true,
+        true,
+        true,
+        2
+      ));
+      final left = dispatch(
+              'VOICE_STATE_UPDATE', _load('voice_state_update_event', 'nulls'))
+          as VoiceStateUpdatedEvent;
+      expect((left.data.joined, left.data.muted), (false, false));
+    });
+
+    test('VOICE_JOINED and the renegotiations carry their descriptions', () {
+      final joined =
+          dispatch('VOICE_JOINED', _load('voice_joined_event', 'full'))
+              as VoiceJoinedPayloadEvent;
+      expect(joined.data.answer?.sdp, 's-string');
+      final offer = dispatch(
+              'WEBRTC_RENEGOTIATE', _load('webrtc_renegotiate_event', 'full'))
+          as WebRTCRenegotiateEvent;
+      expect(
+          (offer.data.roomId, offer.data.offer.sdp), ('s-string', 's-string'));
+      final answer = dispatch('WEBRTC_RENEGOTIATE_ANSWER',
+              _load('webrtc_renegotiate_answer_event', 'nulls'))
+          as WebRTCRenegotiateAnswerEvent;
+      expect(answer.data.answer, isNull);
+    });
+
+    test('WEBRTC_ICE_CANDIDATE: the candidate is a JSON string', () {
+      // What webrtc.go sends: json.Marshal(candidate.ToJSON()) as a string.
+      const init = '{"candidate":"candidate:1 1 udp 2130706431 45.77.6.83 '
+          '50000 typ host","sdpMid":"0","sdpMLineIndex":0,'
+          '"usernameFragment":null}';
+      final e = dispatch('WEBRTC_ICE_CANDIDATE', {
+        'candidate': init,
+        'room_id': 'r1',
+      }) as WebRTCIceCandidateEvent;
+      expect(e.data.roomId, 'r1');
+      expect(e.data.candidate.candidate,
+          'candidate:1 1 udp 2130706431 45.77.6.83 50000 typ host');
+      expect(
+          (e.data.candidate.sdpMid, e.data.candidate.sdpMLineIndex), ('0', 0));
+      expect(e.data.candidate.toJson(), {
+        'candidate': 'candidate:1 1 udp 2130706431 45.77.6.83 50000 typ host',
+        'sdpMid': '0',
+        'sdpMLineIndex': 0,
+      });
+    });
+
+    test('WEBRTC_ICE_CANDIDATE: an object, or a bare line', () {
+      final object = dispatch('WEBRTC_ICE_CANDIDATE', {
+        'candidate': {'candidate': 'candidate:x', 'sdpMLineIndex': 1},
+        'room_id': 'r1',
+      }) as WebRTCIceCandidateEvent;
+      expect((object.data.candidate.candidate, object.data.candidate.sdpMid),
+          ('candidate:x', null));
+      // The fixture's string isn't JSON: the line itself.
+      final line = dispatch('WEBRTC_ICE_CANDIDATE',
+              _load('webrtc_ice_candidate_event', 'full'))
+          as WebRTCIceCandidateEvent;
+      expect(line.data.candidate.candidate, 's-string');
+      final broken = dispatch('WEBRTC_ICE_CANDIDATE', {
+        'candidate': '{not json',
+        'room_id': 'r1',
+      }) as WebRTCIceCandidateEvent;
+      expect(broken.data.candidate.candidate, '{not json');
+    });
+
+    test('VOICE_SESSION_REPLACED: another device, or lost access', () {
+      final json = _load('voice_session_replaced_event', 'full');
+      final lost = dispatch('VOICE_SESSION_REPLACED', json)
+          as VoiceSessionReplacedPayloadEvent;
+      expect(lost.data.reason, 's-string');
+      // omitempty: no reason when another device took the voice.
+      final moved = dispatch('VOICE_SESSION_REPLACED', _without(json, 'reason'))
+          as VoiceSessionReplacedPayloadEvent;
+      expect((moved.data.roomId, moved.data.reason), ('s-string', null));
+    });
+
+    test('calls: incoming, accepted, declined, ended', () {
+      final incoming =
+          dispatch('CALL_INCOMING', _load('call_incoming_event', 'nulls'))
+              as CallIncomingPayloadEvent;
+      expect(incoming.data.initiatorAvatar, isNull);
+      final accepted =
+          dispatch('CALL_ACCEPTED', _load('call_member_event', 'full'))
+              as CallAcceptedEvent;
+      final declined =
+          dispatch('CALL_DECLINED', _load('call_member_event', 'full'))
+              as CallDeclinedEvent;
+      expect((accepted.data.userId, declined.data.userId),
+          ('s-string', 's-string'));
+      expect(dispatch('CALL_ENDED', _load('call_ended_event', 'full')),
+          isA<CallEndedPayloadEvent>());
     });
   });
 }

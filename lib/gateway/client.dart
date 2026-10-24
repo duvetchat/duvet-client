@@ -78,6 +78,23 @@ class GatewayClient {
   /// The connection's state now.
   GatewayConnectionState get connectionState => _state;
 
+  /// The number of the socket open now (they're counted from 1 as they open),
+  /// or null while none is: a message sent then would be lost.
+  ///
+  /// What's sent on a socket reaches the session its identify started, and the
+  /// client never resumes one: each socket that opens gets a READY. So a
+  /// message sent on the socket a READY came on went out after it, in that
+  /// session; one sent on an earlier socket belongs to an earlier session.
+  int? get connection =>
+      _socket?.readyState == WebSocket.open ? _connections : null;
+
+  /// How long the gateway had been silent (no event, no heartbeat ack) before
+  /// the last READY: how long it was out of reach before this session, e.g.
+  /// while the device slept. Measured as READY comes, not when a listener
+  /// reads it: the events after READY come at once. Zero before the first
+  /// READY, and for one that's the first thing heard.
+  Duration get silenceBeforeReady => _silenceBeforeReady;
+
   // The open socket, if any: the only one this client keeps.
   WebSocket? _socket;
 
@@ -93,6 +110,14 @@ class GatewayClient {
   bool _awaitingHeartbeatAck = false;
   int _reconnectAttempts = 0;
   int _lastSeq = 0;
+
+  // The sockets that opened, counted: see [connection].
+  int _connections = 0;
+
+  // When the gateway last sent anything, and how long it had been silent
+  // before the last READY: see [silenceBeforeReady].
+  DateTime? _lastHeardAt;
+  Duration _silenceBeforeReady = Duration.zero;
 
   Timer? _heartbeat;
   Timer? _heartbeatAckTimer;
@@ -202,6 +227,7 @@ class GatewayClient {
     }
 
     _socket = socket;
+    _connections++;
     _reconnectAttempts = 0;
     socket.listen(
       (raw) {
@@ -321,21 +347,20 @@ class GatewayClient {
     _log('destroyed');
   }
 
-  /// Sends an arbitrary event message to the gateway.
+  /// Sends an arbitrary event message to the gateway, and answers whether it
+  /// went out on an open socket.
   ///
   /// Equivalent to the TypeScript `sendEventMessage(type, data)` helper.
-  /// Silently drops the message (with a log warning) when no socket is open,
-  /// so callers do not need to guard against transient connection races
-  /// themselves.
+  /// Drops the message (with a log warning) when no socket is open, so callers
+  /// that don't care need not guard against transient connection races.
   ///
   /// ```dart
-  /// client.sendMessage('join_voice', {'room_id': roomId});
-  /// client.sendMessage('WEBRTC_ICE_CANDIDATE', {'candidate': '...', ...});
+  /// client.sendMessage('VOICE_LEAVE', {'room_id': roomId});
   /// ```
-  void sendMessage(String type, Map<String, dynamic> data) {
-    if (!_send({'type': type, 'data': data})) {
-      _log('cannot send "$type" – socket not open (state: ${_state.name})');
-    }
+  bool sendMessage(String type, Map<String, dynamic> data) {
+    if (_send({'type': type, 'data': data})) return true;
+    _log('cannot send "$type" – socket not open (state: ${_state.name})');
+    return false;
   }
 
   // Whether the message went out on the open socket.
@@ -400,6 +425,10 @@ class GatewayClient {
   }
 
   void _onMessage(dynamic raw) {
+    final now = DateTime.now();
+    final last = _lastHeardAt;
+    final silence = last == null ? Duration.zero : now.difference(last);
+    _lastHeardAt = now;
     try {
       final decoded = jsonDecode(raw as String) as Map<String, dynamic>;
 
@@ -417,6 +446,7 @@ class GatewayClient {
         _log('warning: received event with null payload (type=$type)');
         return;
       }
+      if (payload is ReadyEvent) _silenceBeforeReady = silence;
 
       if (!_eventController.isClosed) {
         _eventController.add(payload);
