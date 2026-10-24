@@ -2681,64 +2681,50 @@ class CallEndedPayloadEvent extends GatewayEventPayload {
   const CallEndedPayloadEvent(this.data);
 }
 
-/// An event this package doesn't parse: its [type] and data as they came.
-///
-/// The events this package learned to parse after 1.0.1 extend it
-/// ([MessagePinUpdatedEvent] and those after it here), as they came as one
-/// before: a `switch` over [GatewayEventPayload] written before them still
-/// covers them, and code that read one of them as an [UnknownEvent], by
-/// [type] and [rawData], still does. Match them before [UnknownEvent] to read
-/// their typed `data`.
-class UnknownEvent extends GatewayEventPayload {
-  final String type;
-  final Map<String, dynamic>? rawData;
-  const UnknownEvent(this.type, this.rawData);
-}
-
-class MessagePinUpdatedEvent extends UnknownEvent {
+class MessagePinUpdatedEvent extends GatewayEventPayload {
   final MessagePinUpdateEvent data;
-  const MessagePinUpdatedEvent(this.data, [Map<String, dynamic>? rawData])
-      : super('MESSAGE_PIN_UPDATE', rawData);
+  const MessagePinUpdatedEvent(this.data);
 }
 
-class DMMessagePinUpdatedEvent extends UnknownEvent {
+class DMMessagePinUpdatedEvent extends GatewayEventPayload {
   final DMMessagePinUpdateEvent data;
-  const DMMessagePinUpdatedEvent(this.data, [Map<String, dynamic>? rawData])
-      : super('DM_MESSAGE_PIN_UPDATE', rawData);
+  const DMMessagePinUpdatedEvent(this.data);
 }
 
 /// RECORDING: someone is recording a voice message in a room, with what
 /// TYPING carries. Like TYPING, it takes no sequence number, and a resume
 /// doesn't replay it.
-class RecordingStartedEvent extends UnknownEvent {
+class RecordingStartedEvent extends GatewayEventPayload {
   final TypingEvent data;
-  const RecordingStartedEvent(this.data, [Map<String, dynamic>? rawData])
-      : super('RECORDING', rawData);
+  const RecordingStartedEvent(this.data);
 }
 
 /// DM_RECORDING: [RecordingStartedEvent] for a conversation.
-class DMRecordingStartedEvent extends UnknownEvent {
+class DMRecordingStartedEvent extends GatewayEventPayload {
   final DMTypingEvent data;
-  const DMRecordingStartedEvent(this.data, [Map<String, dynamic>? rawData])
-      : super('DM_RECORDING', rawData);
+  const DMRecordingStartedEvent(this.data);
 }
 
-class RoomReorderedEvent extends UnknownEvent {
+class RoomReorderedEvent extends GatewayEventPayload {
   final RoomReorderEvent data;
-  const RoomReorderedEvent(this.data, [Map<String, dynamic>? rawData])
-      : super('ROOM_REORDER', rawData);
+  const RoomReorderedEvent(this.data);
 }
 
-class UserActivityUpdatedEvent extends UnknownEvent {
+class UserActivityUpdatedEvent extends GatewayEventPayload {
   final UserActivityUpdateEvent data;
-  const UserActivityUpdatedEvent(this.data, [Map<String, dynamic>? rawData])
-      : super('USER_ACTIVITY_UPDATE', rawData);
+  const UserActivityUpdatedEvent(this.data);
 }
 
 /// TEAM_INVITE_CREATE: the user was invited to a developer team. The invite
 /// is the one `listMyTeamInvites` lists, until it's accepted or declined.
-class TeamInviteCreatedEvent extends UnknownEvent {
+class TeamInviteCreatedEvent extends GatewayEventPayload {
   final TeamInvite data;
-  const TeamInviteCreatedEvent(this.data, [Map<String, dynamic>? rawData])
-      : super('TEAM_INVITE_CREATE', rawData);
+  const TeamInviteCreatedEvent(this.data);
+}
+
+/// An event this package doesn't parse: its [type] and data as they came.
+class UnknownEvent extends GatewayEventPayload {
+  final String type;
+  final Map<String, dynamic>? rawData;
+  const UnknownEvent(this.type, this.rawData);
 }

@@ -56,73 +56,6 @@ Map<String, dynamic> _withNull(Map<String, dynamic> json, String key) =>
 Map<String, dynamic> _without(Map<String, dynamic> json, String key) =>
     {...json}..remove(key);
 
-/// A `switch` over the events 1.0.1 had, with no default case, as code
-/// written against it can have: it must still compile, so every event added
-/// since is one of them (an [UnknownEvent]).
-String _asOf101(GatewayEventPayload e) => switch (e) {
-      ReadyEvent() ||
-      SpaceCreateEvent() ||
-      SpaceUpdateEvent() ||
-      SpaceDeletedEvent() ||
-      RoomCreateEvent() ||
-      RoomUpdateEvent() ||
-      RoomDeletedEvent() ||
-      RoomOverwriteUpdateEvent() ||
-      RoomOverwriteDeletedEvent() ||
-      MessageCreateEvent() ||
-      MessageUpdateEvent() ||
-      MessageDeletedEvent() ||
-      MentionCreatedEvent() ||
-      DMMentionCreatedEvent() ||
-      UserUpdatedEvent() ||
-      UserStatusUpdatedEvent() ||
-      VoiceStateUpdatedEvent() ||
-      VoiceJoinedPayloadEvent() ||
-      WebRTCIceCandidateEvent() ||
-      WebRTCRenegotiateEvent() ||
-      WebRTCRenegotiateAnswerEvent() ||
-      VoiceSessionReplacedPayloadEvent() ||
-      RoleCreatedEvent() ||
-      RoleUpdatedEvent() ||
-      RoleDeletedEvent() ||
-      MemberRoleAddedEvent() ||
-      MemberRoleRemovedEvent() ||
-      SpaceMemberAddedEvent() ||
-      SpaceMemberRemovedEvent() ||
-      GuildMemberAddedEvent() ||
-      GuildMemberRemovedEvent() ||
-      SpaceEmojiCreatedEvent() ||
-      SpaceEmojiUpdatedEvent() ||
-      SpaceEmojiDeletedEvent() ||
-      SpaceStickerCreatedEvent() ||
-      SpaceStickerUpdatedEvent() ||
-      SpaceStickerDeletedEvent() ||
-      ReactionAddedEvent() ||
-      ReactionRemovedEvent() ||
-      FriendRequestCreatedEvent() ||
-      FriendRequestAcceptedEvent() ||
-      FriendRequestRejectedEvent() ||
-      FriendRemovedEvent() ||
-      ConversationCreatedEvent() ||
-      ConversationUpdatedEvent() ||
-      ConversationDeletedEvent() ||
-      ConversationMemberAddedEvent() ||
-      ConversationMemberRemovedEvent() ||
-      DMMessageCreatedEvent() ||
-      DMMessageUpdatedEvent() ||
-      DMMessageDeletedEvent() ||
-      DMReactionAddedEvent() ||
-      DMReactionRemovedEvent() ||
-      TypingStartedEvent() ||
-      DMTypingStartedEvent() ||
-      CallIncomingPayloadEvent() ||
-      CallAcceptedEvent() ||
-      CallDeclinedEvent() ||
-      CallEndedPayloadEvent() =>
-        'known',
-      UnknownEvent() => 'unknown',
-    };
-
 void main() {
   group('users', () {
     _parses('user_me', UserMeResult.fromJson, check: (u, variant) {
@@ -476,31 +409,39 @@ void main() {
         test('$type ($variant)', () {
           final payload = dispatch(type, json);
           expect(payload, isNotNull);
-          // A type of its own: the events added after 1.0.1 are UnknownEvents
-          // too, but not only.
-          expect(payload.runtimeType, isNot(UnknownEvent));
+          expect(payload, isNot(isA<UnknownEvent>()));
         });
       }
     }
 
-    test('the events added after 1.0.1 are still UnknownEvents', () {
-      // As they came before: code that read them by type and data still
-      // does, and a switch that handles UnknownEvent still covers them.
-      for (final (type, name) in [
-        ('MESSAGE_PIN_UPDATE', 'message_pin_update_event'),
-        ('DM_MESSAGE_PIN_UPDATE', 'dm_message_pin_update_event'),
-        ('RECORDING', 'typing_event'),
-        ('DM_RECORDING', 'dm_typing_event'),
-        ('ROOM_REORDER', 'room_reorder_event'),
-        ('USER_ACTIVITY_UPDATE', 'user_activity_update_event'),
-        ('TEAM_INVITE_CREATE', 'team_invite_create_event'),
-      ]) {
-        final json = _load(name, 'full');
-        final e = dispatch(type, json);
-        expect(e, isA<UnknownEvent>(), reason: type);
-        final unknown = e as UnknownEvent;
-        expect((unknown.type, unknown.rawData), (type, json), reason: type);
-        expect(_asOf101(e), 'unknown', reason: type);
+    test('the events added after 1.0.1 are their own, no UnknownEvents', () {
+      // A breaking change: they came as UnknownEvents, and a switch over
+      // GatewayEventPayload with no default case has to handle them now.
+      const added = <String, (String, Type)>{
+        'MESSAGE_PIN_UPDATE': (
+          'message_pin_update_event',
+          MessagePinUpdatedEvent
+        ),
+        'DM_MESSAGE_PIN_UPDATE': (
+          'dm_message_pin_update_event',
+          DMMessagePinUpdatedEvent
+        ),
+        'RECORDING': ('typing_event', RecordingStartedEvent),
+        'DM_RECORDING': ('dm_typing_event', DMRecordingStartedEvent),
+        'ROOM_REORDER': ('room_reorder_event', RoomReorderedEvent),
+        'USER_ACTIVITY_UPDATE': (
+          'user_activity_update_event',
+          UserActivityUpdatedEvent
+        ),
+        'TEAM_INVITE_CREATE': (
+          'team_invite_create_event',
+          TeamInviteCreatedEvent
+        ),
+      };
+      for (final MapEntry(key: type, value: (name, event)) in added.entries) {
+        final e = dispatch(type, _load(name, 'full'));
+        expect(e.runtimeType, event, reason: type);
+        expect(e, isNot(isA<UnknownEvent>()), reason: type);
       }
     });
 
@@ -725,7 +666,6 @@ void main() {
 
     test('an event the client doesn\'t know', () {
       expect(dispatch('SOMETHING_NEW', {'a': 1}), isA<UnknownEvent>());
-      expect(_asOf101(dispatch('SOMETHING_NEW', {'a': 1})!), 'unknown');
     });
 
     test('the reason the gateway closes a socket with', () {

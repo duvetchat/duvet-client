@@ -6,9 +6,18 @@ out, and they read as null.
 
 Then what the desktop app has and this package lacked: the gateway events it
 dropped, resuming a dropped gateway session, the gateway's close reasons and
-`allowed_mentions`. Nothing breaks either: the new events are still
-`UnknownEvent`s, as they came before, resuming is off unless asked for, and the
-new parameters and fields are optional.
+`allowed_mentions`. **Breaking change:** the events it dropped join the sealed
+`GatewayEventPayload` (see "Breaking changes"). Resuming is off unless asked
+for, and the new parameters and fields are optional.
+
+### Breaking changes
+
+- New events join the sealed `GatewayEventPayload`: `MessagePinUpdatedEvent`,
+  `DMMessagePinUpdatedEvent`, `RecordingStartedEvent`,
+  `DMRecordingStartedEvent`, `RoomReorderedEvent`, `UserActivityUpdatedEvent`
+  and `TeamInviteCreatedEvent` (see "Added"). A `switch` over it without a
+  default case has to handle them, and they no longer come as `UnknownEvent`s:
+  code that read them by `type` and `rawData` has to match their own types.
 
 ### Added
 
@@ -42,10 +51,8 @@ new parameters and fields are optional.
 
   `GatewayEvents` has `onMessagePinUpdate`, `onDMPinUpdate`, `onRecording`,
   `onDMRecording`, `onRoomReorder`, `onUserActivityUpdate` and
-  `onTeamInviteCreate`. Each event is still an `UnknownEvent`, with its `type`
-  and `rawData`: a `switch` over `GatewayEventPayload` with no default case
-  still compiles, and code that read one that way still does. Match them
-  before `UnknownEvent`.
+  `onTeamInviteCreate`. They're no longer `UnknownEvent`s: see "Breaking
+  changes".
 - **Activities:** `Activity` (`type`, `ActivityType.playing` or `listening`;
   `name`, `details`, `state`, `timestamps` in Unix milliseconds, `assets`),
   and SPACE_CREATE's `activities` (`GatewaySpaceCreatePayload.activities`):
@@ -123,9 +130,8 @@ new parameters and fields are optional.
   gateway said whether it resumed is followed by a new session; a
   `close-with-reason` reaches `onCloseReason` and leaves the sequence number
   alone; the silence before READY counts from before a `close-with-reason`.
-- `test/models_test.dart`: each new event from its fixtures, and that each is
-  still an `UnknownEvent`, also for a `switch` over the events of 1.0.1 with
-  no default case, which must still compile; activities, cleared and bare;
+- `test/models_test.dart`: each new event from its fixtures, as an event of
+  its own and no `UnknownEvent`; activities, cleared and bare;
   SPACE_CREATE's activities; SPACE_MEMBER_ADD's status and user; a bot's
   status's space; the conversation users' new fields; a reply's
   `mention_author`; the ephemeral and loading flags, and flags and interaction

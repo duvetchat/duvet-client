@@ -172,7 +172,6 @@ mixin GatewayEvents {
   Stream<WebRTCRenegotiateAnswerEvent> get onRenegotiateAnswer =>
       onEvent.whereType<WebRTCRenegotiateAnswerEvent>();
 
-  /// The events this package doesn't parse, and those it learned to parse
-  /// after 1.0.1, which are [UnknownEvent]s too: see [UnknownEvent].
+  /// The events this package doesn't parse.
   Stream<UnknownEvent> get onUnknown => onEvent.whereType<UnknownEvent>();
 }

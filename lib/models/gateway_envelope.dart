@@ -40,7 +40,7 @@ class GatewayEnvelope {
       case 'ROOM_DELETE':
         return RoomDeletedEvent(RoomDeleteEvent.fromJson(d));
       case 'ROOM_REORDER':
-        return RoomReorderedEvent(RoomReorderEvent.fromJson(d), d);
+        return RoomReorderedEvent(RoomReorderEvent.fromJson(d));
       case 'ROOM_OVERWRITE_UPDATE':
         return RoomOverwriteUpdateEvent(GatewayRoomOverwrite.fromJson(d));
       case 'ROOM_OVERWRITE_DELETE':
@@ -52,7 +52,7 @@ class GatewayEnvelope {
       case 'MESSAGE_DELETE':
         return MessageDeletedEvent(GatewayMessageDelete.fromJson(d));
       case 'MESSAGE_PIN_UPDATE':
-        return MessagePinUpdatedEvent(MessagePinUpdateEvent.fromJson(d), d);
+        return MessagePinUpdatedEvent(MessagePinUpdateEvent.fromJson(d));
       case 'MENTION_CREATE':
         return MentionCreatedEvent(MentionCreateEvent.fromJson(d));
       case 'DM_MENTION_CREATE':
@@ -62,7 +62,7 @@ class GatewayEnvelope {
       case 'USER_STATUS_UPDATE':
         return UserStatusUpdatedEvent(GatewayUserStatusUpdate.fromJson(d));
       case 'USER_ACTIVITY_UPDATE':
-        return UserActivityUpdatedEvent(UserActivityUpdateEvent.fromJson(d), d);
+        return UserActivityUpdatedEvent(UserActivityUpdateEvent.fromJson(d));
       case 'VOICE_STATE_UPDATE':
         return VoiceStateUpdatedEvent(VoiceStateEvent.fromJson(d));
       case 'VOICE_JOINED':
@@ -137,7 +137,7 @@ class GatewayEnvelope {
       case 'DM_MESSAGE_DELETE':
         return DMMessageDeletedEvent(DMMessageDeleteEvent.fromJson(d));
       case 'DM_MESSAGE_PIN_UPDATE':
-        return DMMessagePinUpdatedEvent(DMMessagePinUpdateEvent.fromJson(d), d);
+        return DMMessagePinUpdatedEvent(DMMessagePinUpdateEvent.fromJson(d));
       case 'DM_REACTION_ADD':
         return DMReactionAddedEvent(ReactionEvent.fromJson(d));
       case 'DM_REACTION_REMOVE':
@@ -147,9 +147,9 @@ class GatewayEnvelope {
       case 'DM_TYPING':
         return DMTypingStartedEvent(DMTypingEvent.fromJson(d));
       case 'RECORDING':
-        return RecordingStartedEvent(TypingEvent.fromJson(d), d);
+        return RecordingStartedEvent(TypingEvent.fromJson(d));
       case 'DM_RECORDING':
-        return DMRecordingStartedEvent(DMTypingEvent.fromJson(d), d);
+        return DMRecordingStartedEvent(DMTypingEvent.fromJson(d));
       case 'CALL_INCOMING':
         return CallIncomingPayloadEvent(CallIncomingEvent.fromJson(d));
       case 'CALL_ACCEPTED':
@@ -159,7 +159,7 @@ class GatewayEnvelope {
       case 'CALL_ENDED':
         return CallEndedPayloadEvent(CallEndedEvent.fromJson(d));
       case 'TEAM_INVITE_CREATE':
-        return TeamInviteCreatedEvent(TeamInvite.fromJson(d), d);
+        return TeamInviteCreatedEvent(TeamInvite.fromJson(d));
       default:
         return UnknownEvent(type, d);
     }
