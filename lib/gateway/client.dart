@@ -17,7 +17,9 @@ enum GatewayConnectionState {
   /// Opening the first socket.
   connecting,
 
-  /// A socket is open and the client identified on it; READY follows.
+  /// A socket is open and the client identified on it; READY follows, or,
+  /// when the gateway resumes the session, the events it missed and
+  /// [GatewayClient.onResume].
   connected,
 
   /// The socket closed, or couldn't open, and the client is opening another.
@@ -40,6 +42,27 @@ enum GatewayConnectionState {
 /// drops, or stops answering heartbeats, it opens a new one and identifies
 /// again, until [destroy].
 ///
+/// ### Resuming
+/// Each identify starts a new session, which READY begins, unless [resume]
+/// is on. Then a socket that replaces one that dropped asks the gateway to
+/// resume its session (READY's `sessionToken` and the last sequence number
+/// heard), as the desktop app does. The gateway keeps a dropped session for
+/// 30 seconds from when it notices the drop, with its last 500 events:
+///
+/// * when it resumes it, it sends the events the session got after the last
+///   one heard, each with its own sequence number, then the new ones, and no
+///   READY. The session goes on: its token, its voice and calls. The client
+///   tells it by [onResume], after those events.
+/// * when it can't (it hasn't noticed the drop yet, the 30 seconds are over,
+///   more than 500 events are missing, or it restarted), it starts a new
+///   session and sends READY, as without [resume]: what the old session got
+///   meanwhile is lost.
+///
+/// The gateway says nothing when it resumes, so the client asks: it sends a
+/// heartbeat right after the identify. The gateway handles a socket's
+/// messages in order, so its answer comes after READY when it started a new
+/// session, and after the events it replayed when it resumed.
+///
 /// Parse or protocol errors are pushed to [errors]. Both streams remain
 /// open across reconnect cycles and only close when [destroy] is called.
 ///
@@ -55,6 +78,11 @@ class GatewayClient {
   /// How long opening a socket may take before the attempt fails with a
   /// [TimeoutException] ([defaultConnectTimeout]).
   final Duration connectTimeout;
+
+  /// Whether a socket that replaces one that dropped resumes its session
+  /// (see "Resuming" above), as the desktop app does. Off, as by default,
+  /// each socket starts a new session, with READY.
+  final bool resume;
 
   /// Broadcast stream of every decoded [GatewayEventPayload] received from
   /// the gateway, including the initial [ReadyEvent].
@@ -75,16 +103,31 @@ class GatewayClient {
   Stream<GatewayConnectionState> get onConnectionState =>
       _stateController.stream;
 
+  /// Broadcast stream that fires when the gateway resumed the session on a
+  /// new socket ([resume]): the session is live again, as on a READY. The
+  /// events it missed came before, on [events]; no READY comes. A socket
+  /// whose session the gateway couldn't resume gets READY instead.
+  Stream<void> get onResume => _resumeController.stream;
+
+  /// Broadcast stream of the reasons the gateway gives before it closes the
+  /// socket: [GatewayCloseCode]. The client opens another one, as after any
+  /// drop. After [GatewayCloseCode.invalidCredentials], a socket with the
+  /// same token fails again: ask the API about the session, as the desktop
+  /// app does.
+  Stream<GatewayCloseReason> get onCloseReason => _closeController.stream;
+
   /// The connection's state now.
   GatewayConnectionState get connectionState => _state;
 
   /// The number of the socket open now (they're counted from 1 as they open),
   /// or null while none is: a message sent then would be lost.
   ///
-  /// What's sent on a socket reaches the session its identify started, and the
-  /// client never resumes one: each socket that opens gets a READY. So a
-  /// message sent on the socket a READY came on went out after it, in that
-  /// session; one sent on an earlier socket belongs to an earlier session.
+  /// What's sent on a socket reaches the session its identify started, or
+  /// the one it resumed ([resume], [onResume]). Without [resume] each socket
+  /// that opens gets a READY, so a message sent on the socket a READY came on
+  /// went out after it, in that session; one sent on an earlier socket
+  /// belongs to an earlier session. With it, a socket that resumed carries
+  /// on the session of the sockets before it, back to its READY.
   int? get connection =>
       _socket?.readyState == WebSocket.open ? _connections : null;
 
@@ -111,6 +154,20 @@ class GatewayClient {
   int _reconnectAttempts = 0;
   int _lastSeq = 0;
 
+  // The session to resume: the last READY's sessionToken, which a resume
+  // keeps.
+  String? _sessionToken;
+
+  // Set by wantFreshSession until a READY comes.
+  bool _freshSessionWanted = false;
+
+  // The open socket's identify asked to resume, and neither READY nor the
+  // first heartbeat ack has said yet whether the gateway did.
+  bool _resuming = false;
+
+  // The heartbeat sent right after a resuming identify waits for its ack.
+  bool _probing = false;
+
   // The sockets that opened, counted: see [connection].
   int _connections = 0;
 
@@ -133,6 +190,12 @@ class GatewayClient {
   final StreamController<GatewayConnectionState> _stateController =
       StreamController<GatewayConnectionState>.broadcast();
 
+  final StreamController<void> _resumeController =
+      StreamController<void>.broadcast();
+
+  final StreamController<GatewayCloseReason> _closeController =
+      StreamController<GatewayCloseReason>.broadcast();
+
   static const Duration _heartbeatInterval = Duration(seconds: 45);
   static const Duration _heartbeatAckTimeout = Duration(seconds: 15);
   static const Duration _maxReconnectDelay = Duration(milliseconds: 2500);
@@ -149,6 +212,7 @@ class GatewayClient {
     void Function(String msg)? log,
     ApiRouter? router,
     this.connectTimeout = defaultConnectTimeout,
+    this.resume = false,
   })  : _log = log ?? ((msg) => print('[gateway:shard-$shardId] $msg')),
         router = router ?? const ApiRouter();
 
@@ -298,6 +362,15 @@ class GatewayClient {
 
   void _closeSocket() {
     _stopHeartbeat();
+    _probing = false;
+    if (_resuming) {
+      // Gone before the gateway said whether it resumed the session: what
+      // came on this socket may have been a new session's, whose sequence
+      // numbers would resume the old one at the wrong place. The next socket
+      // starts a new one.
+      _resuming = false;
+      _sessionToken = null;
+    }
     final socket = _socket;
     if (socket == null) return;
     _socket = null;
@@ -329,9 +402,10 @@ class GatewayClient {
         _ => e,
       };
 
-  /// Permanently shuts down this client. The [events], [errors] and
-  /// [onConnectionState] streams are closed and the socket is disconnected;
-  /// no other one opens. Do not reuse after calling this.
+  /// Permanently shuts down this client. The [events], [errors],
+  /// [onConnectionState], [onResume] and [onCloseReason] streams are closed
+  /// and the socket is disconnected; no other one opens. Do not reuse after
+  /// calling this.
   void destroy() {
     if (_destroyed) return;
     _destroyed = true;
@@ -344,8 +418,17 @@ class GatewayClient {
     _eventController.close();
     _errorController.close();
     _stateController.close();
+    _resumeController.close();
+    _closeController.close();
     _log('destroyed');
   }
+
+  /// Makes the next identify start a new session, with READY, rather than
+  /// resume this one ([resume]); until a READY comes. The desktop app asks
+  /// for one when voice has to join while no socket is open: it joins on the
+  /// next session's READY, which a resume doesn't send, and a resume would
+  /// replay what the earlier sockets were sent.
+  void wantFreshSession() => _freshSessionWanted = true;
 
   /// Sends an arbitrary event message to the gateway, and answers whether it
   /// went out on an open socket.
@@ -410,29 +493,64 @@ class GatewayClient {
   }
 
   void _handleHeartbeatAck() {
+    if (_resuming) {
+      // The first ack since the identify that asked to resume, and no READY
+      // before it: the gateway resumed the session, and what it replayed
+      // came first.
+      _resuming = false;
+      _log('session resumed (seq=$_lastSeq)');
+      if (!_resumeController.isClosed) _resumeController.add(null);
+    }
+    if (_probing) {
+      // The heartbeat sent with the identify: a periodic one may still wait
+      // for its own ack.
+      _probing = false;
+      return;
+    }
     _awaitingHeartbeatAck = false;
     _heartbeatAckTimer?.cancel();
     _log('♥ ack');
   }
 
   void _identify() {
+    final session = _sessionToken;
+    final resuming =
+        resume && session != null && _lastSeq > 0 && !_freshSessionWanted;
     final data = <String, dynamic>{
       'token': token,
       if (_lastSeq > 0) 'last_seq': _lastSeq,
+      if (resuming) 'session_token': session,
     };
-    _send({'type': 'identify', 'data': data});
-    _log('identify sent (shard=$shardId/$shardCount, seq=$_lastSeq)');
+    final sent = _send({'type': 'identify', 'data': data});
+    _log('identify sent (shard=$shardId/$shardCount, seq=$_lastSeq'
+        '${resuming ? ', resuming' : ''})');
+    if (resuming && sent) {
+      // Its ack comes after READY when the gateway starts a new session
+      // instead, and after the events it replays when it resumes this one:
+      // an ack with no READY before it says the gateway resumed.
+      _resuming = true;
+      _probing = _send({'type': 'heartbeat', 'data': <String, dynamic>{}});
+    }
   }
 
   void _onMessage(dynamic raw) {
     final now = DateTime.now();
-    final last = _lastHeardAt;
-    final silence = last == null ? Duration.zero : now.difference(last);
-    _lastHeardAt = now;
     try {
       final decoded = jsonDecode(raw as String) as Map<String, dynamic>;
 
       final String type = decoded['event'] as String? ?? '';
+      if (type.toLowerCase() == 'close-with-reason') {
+        // It doesn't count as hearing from the gateway (silenceBeforeReady):
+        // a refused identify after a sleep would hide how long it lasted.
+        final close = GatewayCloseReason.fromJson(decoded);
+        _log('the gateway closes the socket: ${close.code} ${close.reason}');
+        if (!_closeController.isClosed) _closeController.add(close);
+        return;
+      }
+
+      final last = _lastHeardAt;
+      final silence = last == null ? Duration.zero : now.difference(last);
+      _lastHeardAt = now;
       if (type.toUpperCase() == 'HEARTBEAT_ACK') {
         _handleHeartbeatAck();
         return;
@@ -446,7 +564,13 @@ class GatewayClient {
         _log('warning: received event with null payload (type=$type)');
         return;
       }
-      if (payload is ReadyEvent) _silenceBeforeReady = silence;
+      if (payload is ReadyEvent) {
+        _silenceBeforeReady = silence;
+        // A new session, which says how a resuming identify went.
+        _sessionToken = payload.data.sessionToken;
+        _freshSessionWanted = false;
+        _resuming = false;
+      }
 
       if (!_eventController.isClosed) {
         _eventController.add(payload);

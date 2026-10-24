@@ -1,0 +1,21 @@
+{
+  "user_id": "s-string",
+  "activities": [
+    {
+      "type": 2,
+      "name": "s-string",
+      "details": "s-string",
+      "state": "s-string",
+      "timestamps": {
+        "start": 2,
+        "end": 2
+      },
+      "assets": {
+        "large_image": "s-string",
+        "large_text": "s-string",
+        "small_image": "s-string",
+        "small_text": "s-string"
+      }
+    }
+  ]
+}

@@ -69,8 +69,13 @@ func TestWriteFixtures(t *testing.T) {
 	w("reaction_remove_event", of[ev.ReactionRemove])
 	w("dm_reaction_add_event", of[ev.DMReactionAdd])
 	w("dm_reaction_remove_event", of[ev.DMReactionRemove])
+	// RECORDING and DM_RECORDING carry these too (Recording = Typing).
 	w("typing_event", of[ev.Typing])
 	w("dm_typing_event", of[ev.DMTyping])
+	w("message_pin_update_event", of[ev.MessagePinUpdate])
+	w("dm_message_pin_update_event", of[ev.DMMessagePinUpdate])
+	w("room_reorder_event", of[ev.RoomReorder])
+	w("team_invite_create_event", of[ev.TeamInviteCreate])
 	w("member_role_add_event", of[ev.MemberRoleAdd])
 	w("member_role_remove_event", of[ev.MemberRoleRemove])
 	w("role_delete_event", of[ev.RoleDelete])

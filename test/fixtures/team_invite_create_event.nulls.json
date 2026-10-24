@@ -1,0 +1,9 @@
+{
+  "id": "s-string",
+  "team_id": "s-string",
+  "user_id": "s-string",
+  "invited_by": "s-string",
+  "created_at": "2026-10-22T10:00:00.123456789Z",
+  "team_name": "s-string",
+  "invited_by_username": "s-string"
+}

@@ -334,6 +334,43 @@ void main() {
       expect(body, isNot(contains('name="reference"')));
     });
 
+    test('a reply that doesn\'t mention its author: allowed_mentions',
+        () async {
+      final dir = Directory.systemTemp.createTempSync('duvet_test');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final file = File('${dir.path}/cat.png')..writeAsBytesSync([1, 2, 3]);
+      const reply =
+          MessageReference(type: MessageReferenceType.reply, messageId: 'm0');
+      const silent = AllowedMentions(repliedUser: false);
+
+      final c = _client((s) => s.path.startsWith('/api/rooms')
+          ? _message
+          : {..._message, 'conversation_id': 'c1'});
+      await c.api.sendMessage('r1', 'hi',
+          messageReference: reply, allowedMentions: silent);
+      await c.api.sendDirectMessage('c1', 'hi',
+          messageReference: reply,
+          allowedMentions: const AllowedMentions(repliedUser: true));
+      // In a form, a JSON string, as message_reference.
+      await c.api.sendMessage('r1', 'look',
+          messageReference: reply, allowedMentions: silent, files: [file]);
+      await c.api.sendDirectMessage('c1', 'look',
+          messageReference: reply, allowedMentions: silent, files: [file]);
+
+      expect(c.sent[0].json, {
+        'content': 'hi',
+        'message_reference': {'type': 0, 'message_id': 'm0'},
+        'allowed_mentions': {'replied_user': false},
+      });
+      expect(c.sent[1].path, '/api/users/@me/conversations/c1/messages');
+      expect(c.sent[1].json['allowed_mentions'], {'replied_user': true});
+      for (final s in c.sent.sublist(2)) {
+        expect(s.request.body,
+            contains('name="allowed_mentions"\r\n\r\n{"replied_user":false}'));
+      }
+      expect(c.sent[3].path, '/api/users/@me/conversations/c1/messages');
+    });
+
     test('sendVoiceNote sends a WebM file of type 1', () async {
       final c = _client((_) => {..._message, 'type': 1});
       final m = await c.api.sendVoiceNote('r1', [1, 2, 3], nonce: 'n');

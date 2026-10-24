@@ -39,6 +39,8 @@ class GatewayEnvelope {
         return RoomUpdateEvent(GatewayRoom.fromJson(d));
       case 'ROOM_DELETE':
         return RoomDeletedEvent(RoomDeleteEvent.fromJson(d));
+      case 'ROOM_REORDER':
+        return RoomReorderedEvent(RoomReorderEvent.fromJson(d), d);
       case 'ROOM_OVERWRITE_UPDATE':
         return RoomOverwriteUpdateEvent(GatewayRoomOverwrite.fromJson(d));
       case 'ROOM_OVERWRITE_DELETE':
@@ -49,6 +51,8 @@ class GatewayEnvelope {
         return MessageUpdateEvent(GatewayMessage.fromJson(d));
       case 'MESSAGE_DELETE':
         return MessageDeletedEvent(GatewayMessageDelete.fromJson(d));
+      case 'MESSAGE_PIN_UPDATE':
+        return MessagePinUpdatedEvent(MessagePinUpdateEvent.fromJson(d), d);
       case 'MENTION_CREATE':
         return MentionCreatedEvent(MentionCreateEvent.fromJson(d));
       case 'DM_MENTION_CREATE':
@@ -57,6 +61,8 @@ class GatewayEnvelope {
         return UserUpdatedEvent(UserUpdateEvent.fromJson(d));
       case 'USER_STATUS_UPDATE':
         return UserStatusUpdatedEvent(GatewayUserStatusUpdate.fromJson(d));
+      case 'USER_ACTIVITY_UPDATE':
+        return UserActivityUpdatedEvent(UserActivityUpdateEvent.fromJson(d), d);
       case 'VOICE_STATE_UPDATE':
         return VoiceStateUpdatedEvent(VoiceStateEvent.fromJson(d));
       case 'VOICE_JOINED':
@@ -130,6 +136,8 @@ class GatewayEnvelope {
         return DMMessageUpdatedEvent(DirectMessage.fromJson(d));
       case 'DM_MESSAGE_DELETE':
         return DMMessageDeletedEvent(DMMessageDeleteEvent.fromJson(d));
+      case 'DM_MESSAGE_PIN_UPDATE':
+        return DMMessagePinUpdatedEvent(DMMessagePinUpdateEvent.fromJson(d), d);
       case 'DM_REACTION_ADD':
         return DMReactionAddedEvent(ReactionEvent.fromJson(d));
       case 'DM_REACTION_REMOVE':
@@ -138,6 +146,10 @@ class GatewayEnvelope {
         return TypingStartedEvent(TypingEvent.fromJson(d));
       case 'DM_TYPING':
         return DMTypingStartedEvent(DMTypingEvent.fromJson(d));
+      case 'RECORDING':
+        return RecordingStartedEvent(TypingEvent.fromJson(d), d);
+      case 'DM_RECORDING':
+        return DMRecordingStartedEvent(DMTypingEvent.fromJson(d), d);
       case 'CALL_INCOMING':
         return CallIncomingPayloadEvent(CallIncomingEvent.fromJson(d));
       case 'CALL_ACCEPTED':
@@ -146,8 +158,47 @@ class GatewayEnvelope {
         return CallDeclinedEvent(CallResponseEvent.fromJson(d));
       case 'CALL_ENDED':
         return CallEndedPayloadEvent(CallEndedEvent.fromJson(d));
+      case 'TEAM_INVITE_CREATE':
+        return TeamInviteCreatedEvent(TeamInvite.fromJson(d), d);
       default:
         return UnknownEvent(type, d);
     }
   }
+}
+
+/// The codes of [GatewayCloseReason.code].
+abstract final class GatewayCloseCode {
+  /// Bad shard options in identify: a bot's.
+  static const invalidShard = 4000;
+
+  /// Something other than identify or a heartbeat before identify.
+  static const notIdentified = 4003;
+
+  /// The token isn't valid: unknown or expired at identify, revoked since (a
+  /// bot deleted or its token reset, the account's password reset), or its
+  /// session ended (logged out, expired, or 30 days after the login). A
+  /// socket opened with the same token fails again: ask the API about the
+  /// session, as the desktop app does. A request that gets a 401 renews the
+  /// tokens, or forgets them when the session is gone.
+  static const invalidCredentials = 4004;
+
+  /// A second identify on a socket that had identified.
+  static const alreadyIdentified = 4005;
+}
+
+/// Why the gateway closes a socket, which it says just before it does
+/// (`{"event": "close-with-reason", "code": …, "reason": …}`).
+class GatewayCloseReason {
+  /// A [GatewayCloseCode].
+  final int code;
+  final String reason;
+
+  const GatewayCloseReason({required this.code, required this.reason});
+
+  GatewayCloseReason.fromJson(Map<String, dynamic> j)
+      : code = j['code'] as int? ?? 0,
+        reason = j['reason'] as String? ?? '';
+
+  @override
+  String toString() => 'GatewayCloseReason($code $reason)';
 }

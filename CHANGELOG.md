@@ -4,6 +4,12 @@ Bios and the do-not-disturb status, for the API and gateway versions that bring
 them (not deployed yet). Nothing breaks: an older server leaves the new fields
 out, and they read as null.
 
+Then what the desktop app has and this package lacked: the gateway events it
+dropped, resuming a dropped gateway session, the gateway's close reasons and
+`allowed_mentions`. Nothing breaks either: the new events are still
+`UnknownEvent`s, as they came before, resuming is off unless asked for, and the
+new parameters and fields are optional.
+
 ### Added
 
 - **Bios:** `updateUser(custom:)` sets the bio. The API trims it and takes
@@ -22,6 +28,79 @@ out, and they read as null.
   each friend (`status_id`), whether or not a space is shared with them, so an
   app can show it before USER_STATUS_UPDATE brings a change. Null from an API
   before it.
+- **Gateway events it dropped** (they came as `UnknownEvent`s):
+  - MESSAGE_PIN_UPDATE (`MessagePinUpdatedEvent`, a `MessagePinUpdateEvent`:
+    the message, its room, and `pinnedAt`, null once unpinned) and
+    DM_MESSAGE_PIN_UPDATE (`DMMessagePinUpdatedEvent`);
+  - RECORDING and DM_RECORDING (`RecordingStartedEvent` and
+    `DMRecordingStartedEvent`, with TYPING's and DM_TYPING's data);
+  - ROOM_REORDER (`RoomReorderedEvent`: every room of the space, with its
+    position and parent);
+  - USER_ACTIVITY_UPDATE (`UserActivityUpdatedEvent`: a user's activities,
+    none once cleared);
+  - TEAM_INVITE_CREATE (`TeamInviteCreatedEvent`, a `TeamInvite`).
+
+  `GatewayEvents` has `onMessagePinUpdate`, `onDMPinUpdate`, `onRecording`,
+  `onDMRecording`, `onRoomReorder`, `onUserActivityUpdate` and
+  `onTeamInviteCreate`. Each event is still an `UnknownEvent`, with its `type`
+  and `rawData`: a `switch` over `GatewayEventPayload` with no default case
+  still compiles, and code that read one that way still does. Match them
+  before `UnknownEvent`.
+- **Activities:** `Activity` (`type`, `ActivityType.playing` or `listening`;
+  `name`, `details`, `state`, `timestamps` in Unix milliseconds, `assets`),
+  and SPACE_CREATE's `activities` (`GatewaySpaceCreatePayload.activities`):
+  what the members connected then are doing, by user ID, which
+  USER_ACTIVITY_UPDATE keeps current.
+- **Resuming the gateway session,** as the desktop app does:
+  `GatewayManager(resume: true)` (`GatewayClient` takes it too). A socket that
+  replaces one that dropped identifies with READY's `sessionToken`, as
+  `session_token`, and the last sequence number. The gateway keeps a dropped
+  session for 30 seconds from when it notices the drop, with its last 500
+  events:
+  - when it resumes it, it replays the events after that number, then sends
+    the new ones, and no READY: `onResume` (on the manager and the client)
+    fires after the replay. The gateway gives no word of it, so the client
+    sends a heartbeat with the identify: its ack comes after the replay, or
+    after READY when the gateway starts a new session instead.
+  - when it can't, READY comes, as without `resume`.
+
+  `wantFreshSession()` makes the next identify start a new session, until a
+  READY comes: the desktop app asks for one when voice has to join while no
+  socket is open, since it joins on READY. A socket that closes before the
+  gateway said whether it resumed is followed by a new session, as what came
+  on it may have been one. Off by default: without it each socket gets a
+  READY, which apps may wait for (the mobile app's online state and voice
+  do).
+- **The gateway's close reasons:** `onCloseReason`, on the manager and the
+  client, gets a `GatewayCloseReason` (`code`, `reason`) for each
+  `close-with-reason`, before the socket closes and another one opens.
+  `GatewayCloseCode` names the codes: `invalidShard` (4000), `notIdentified`
+  (4003), `invalidCredentials` (4004), `alreadyIdentified` (4005). On 4004 the
+  desktop app asks the API about the session at once: a dead one gets a 401,
+  which signs out; a live one renews the token, which the next socket uses.
+- **`allowed_mentions`:** `sendMessage` and `sendDirectMessage` take
+  `allowedMentions`. A reply mentions the author of the message it replies
+  to; `AllowedMentions(repliedUser: false)` sends one that doesn't. In a
+  multipart form it goes as a JSON string, as `message_reference` does.
+  `ReferencedMessage.mentionAuthor` says whether a reply mentions them (false
+  from an API before it).
+- `ConversationUser`, the user of conversation members and DMs, has
+  `custom` (the bio), `flags`, `emailVerified`, `createdAt`, `updatedAt` and
+  `deletedAt`: the API sends the whole public user there.
+- `SpaceMemberEvent.userId`, which SPACE_MEMBER_ADD and SPACE_MEMBER_REMOVE
+  carry, and SPACE_MEMBER_ADD's `statusId` and `user`.
+- `GatewayUserStatusUpdate.spaceId`: the space of a bot's status in a space;
+  null for a person's status, and for a bot's overall one.
+- `MessageFlag.ephemeral` (`1 << 6`): a bot's response only the person who
+  used the interaction sees. `flags` and `interactionMetadata` were parsed
+  already, on the gateway's messages and the API's.
+
+### Fixed
+
+- A `close-with-reason` frame was read as an event without data: it set the
+  sequence number to 0, and counted as hearing from the gateway, so after a
+  sleep a refused identify hid how long the sleep lasted from
+  `silenceBeforeReady`. It does neither now, as in the desktop app.
 
 ### Tests
 
@@ -35,6 +114,31 @@ out, and they read as null.
   `bot_ready_event` come from the unmerged branches that add these fields: the
   API's `space-delete-bio` (the bio) and `dnd-status` (the status), and the
   gateway's `dnd-status`. Every other fixture they make is unchanged.
+- `test/resume_test.dart`, against a fake gateway that keeps sessions as the
+  real one does: without `resume`, each socket starts a new session, and the
+  identify is what it was; with it, the identify carries the session token and
+  the last sequence number, the missed events come, then `onResume`, without
+  READY, and the next drop resumes again; a session the gateway can't resume
+  gets READY and no `onResume`; `wantFreshSession`; a socket gone before the
+  gateway said whether it resumed is followed by a new session; a
+  `close-with-reason` reaches `onCloseReason` and leaves the sequence number
+  alone; the silence before READY counts from before a `close-with-reason`.
+- `test/models_test.dart`: each new event from its fixtures, and that each is
+  still an `UnknownEvent`, also for a `switch` over the events of 1.0.1 with
+  no default case, which must still compile; activities, cleared and bare;
+  SPACE_CREATE's activities; SPACE_MEMBER_ADD's status and user; a bot's
+  status's space; the conversation users' new fields; a reply's
+  `mention_author`; the ephemeral and loading flags, and flags and interaction
+  metadata on the gateway's and the API's messages; close reasons.
+- `test/requests_test.dart`: `allowed_mentions` as JSON and in a form, for
+  rooms and conversations.
+- The fixtures `message_pin_update_event`, `dm_message_pin_update_event`,
+  `room_reorder_event` and `team_invite_create_event` (the API's events) and
+  `user_activity_update_event` (the gateway's), made by
+  `tool/fixtures/generate.sh` from the API's `dev` (c8a65b7) and the gateway's
+  (793f502); every other fixture came out unchanged. RECORDING and
+  DM_RECORDING use `typing_event` and `dm_typing_event`: the API's `Recording`
+  is `Typing`.
 
 ## 1.0.1 – 2026-10-23
 

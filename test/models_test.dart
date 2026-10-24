@@ -56,6 +56,73 @@ Map<String, dynamic> _withNull(Map<String, dynamic> json, String key) =>
 Map<String, dynamic> _without(Map<String, dynamic> json, String key) =>
     {...json}..remove(key);
 
+/// A `switch` over the events 1.0.1 had, with no default case, as code
+/// written against it can have: it must still compile, so every event added
+/// since is one of them (an [UnknownEvent]).
+String _asOf101(GatewayEventPayload e) => switch (e) {
+      ReadyEvent() ||
+      SpaceCreateEvent() ||
+      SpaceUpdateEvent() ||
+      SpaceDeletedEvent() ||
+      RoomCreateEvent() ||
+      RoomUpdateEvent() ||
+      RoomDeletedEvent() ||
+      RoomOverwriteUpdateEvent() ||
+      RoomOverwriteDeletedEvent() ||
+      MessageCreateEvent() ||
+      MessageUpdateEvent() ||
+      MessageDeletedEvent() ||
+      MentionCreatedEvent() ||
+      DMMentionCreatedEvent() ||
+      UserUpdatedEvent() ||
+      UserStatusUpdatedEvent() ||
+      VoiceStateUpdatedEvent() ||
+      VoiceJoinedPayloadEvent() ||
+      WebRTCIceCandidateEvent() ||
+      WebRTCRenegotiateEvent() ||
+      WebRTCRenegotiateAnswerEvent() ||
+      VoiceSessionReplacedPayloadEvent() ||
+      RoleCreatedEvent() ||
+      RoleUpdatedEvent() ||
+      RoleDeletedEvent() ||
+      MemberRoleAddedEvent() ||
+      MemberRoleRemovedEvent() ||
+      SpaceMemberAddedEvent() ||
+      SpaceMemberRemovedEvent() ||
+      GuildMemberAddedEvent() ||
+      GuildMemberRemovedEvent() ||
+      SpaceEmojiCreatedEvent() ||
+      SpaceEmojiUpdatedEvent() ||
+      SpaceEmojiDeletedEvent() ||
+      SpaceStickerCreatedEvent() ||
+      SpaceStickerUpdatedEvent() ||
+      SpaceStickerDeletedEvent() ||
+      ReactionAddedEvent() ||
+      ReactionRemovedEvent() ||
+      FriendRequestCreatedEvent() ||
+      FriendRequestAcceptedEvent() ||
+      FriendRequestRejectedEvent() ||
+      FriendRemovedEvent() ||
+      ConversationCreatedEvent() ||
+      ConversationUpdatedEvent() ||
+      ConversationDeletedEvent() ||
+      ConversationMemberAddedEvent() ||
+      ConversationMemberRemovedEvent() ||
+      DMMessageCreatedEvent() ||
+      DMMessageUpdatedEvent() ||
+      DMMessageDeletedEvent() ||
+      DMReactionAddedEvent() ||
+      DMReactionRemovedEvent() ||
+      TypingStartedEvent() ||
+      DMTypingStartedEvent() ||
+      CallIncomingPayloadEvent() ||
+      CallAcceptedEvent() ||
+      CallDeclinedEvent() ||
+      CallEndedPayloadEvent() =>
+        'known',
+      UnknownEvent() => 'unknown',
+    };
+
 void main() {
   group('users', () {
     _parses('user_me', UserMeResult.fromJson, check: (u, variant) {
@@ -132,6 +199,52 @@ void main() {
       };
       final m = GatewayMessage.fromJson({...full, 'referenced_message': ref});
       expect(m.referencedMessage!.messageId, 'm');
+      // An API from before mention_author.
+      expect(m.referencedMessage!.mentionAuthor, isFalse);
+    });
+
+    test('a reply says whether it mentions the author it replies to', () {
+      for (final name in ['message_create', 'message_response']) {
+        final mentions = GatewayMessage.fromJson(_load(name, 'full'));
+        expect(mentions.referencedMessage!.mentionAuthor, isTrue);
+        final silent = GatewayMessage.fromJson(
+            {..._load(name, 'partial'), 'room_id': 'r1'});
+        expect(silent.referencedMessage!.mentionAuthor, isFalse);
+      }
+    });
+
+    test('flags and interaction metadata, from the gateway and REST', () {
+      for (final name in [
+        'message_create',
+        'message_update',
+        'message_response'
+      ]) {
+        final m = GatewayMessage.fromJson(_load(name, 'full'));
+        expect(m.flags, 2, reason: name);
+        final meta = m.interactionMetadata!;
+        expect((
+          meta.type,
+          meta.user.username,
+          meta.name
+        ), (
+          2,
+          's-string',
+          's-string'
+        ), reason: name);
+        final none =
+            GatewayMessage.fromJson({..._load(name, 'nulls'), 'room_id': 'r1'});
+        expect(none.interactionMetadata, isNull, reason: name);
+      }
+    });
+
+    test('an ephemeral message, and a deferred one loading', () {
+      expect((MessageFlag.ephemeral, MessageFlag.loading), (64, 128));
+      final m = GatewayMessage.fromJson(
+          {...full, 'flags': MessageFlag.ephemeral | MessageFlag.loading});
+      expect(m.flags & MessageFlag.ephemeral, isNonZero);
+      expect(m.flags & MessageFlag.loading, isNonZero);
+      expect(m.flags & MessageFlag.isComponentsV2, isZero);
+      expect(GatewayMessage.fromJson(_without(full, 'flags')).flags, 0);
     });
 
     test('search', () {
@@ -237,6 +350,27 @@ void main() {
           _withNull(_load('conversation', 'full'), 'members'));
       expect(c.members, isEmpty);
     });
+
+    test('a member\'s and a DM\'s user: the whole public user, bio included',
+        () {
+      for (final user in [
+        ConversationMember.fromJson(_load('conversation_member_row', 'full'))
+            .user!,
+        DirectMessage.fromJson(_load('dm_message_create', 'full')).user!,
+      ]) {
+        expect((user.custom, user.flags, user.emailVerified),
+            ('s-string', 2, true));
+        final at = DateTime.utc(2026, 10, 22, 10, 0, 0, 123, 456);
+        expect((user.createdAt, user.updatedAt, user.deletedAt), (at, at, at));
+      }
+      final alive =
+          ConversationMember.fromJson(_load('conversation_member_row', 'nulls'))
+              .user!;
+      expect((alive.deletedAt, alive.emailVerified), (null, false));
+      // Without them: their defaults.
+      final bare = ConversationUser.fromJson({'id': 'u1', 'username': 'maya'});
+      expect((bare.custom, bare.flags, bare.createdAt), ('', 0, null));
+    });
   });
 
   group('gateway events', () {
@@ -307,6 +441,14 @@ void main() {
       'CALL_ACCEPTED': ('call_member_event', []),
       'CALL_DECLINED': ('call_member_event', []),
       'CALL_ENDED': ('call_ended_event', []),
+      'MESSAGE_PIN_UPDATE': ('message_pin_update_event', []),
+      'DM_MESSAGE_PIN_UPDATE': ('dm_message_pin_update_event', []),
+      // The API's Recording and DMRecording are Typing and DMTyping.
+      'RECORDING': ('typing_event', []),
+      'DM_RECORDING': ('dm_typing_event', []),
+      'ROOM_REORDER': ('room_reorder_event', []),
+      'USER_ACTIVITY_UPDATE': ('user_activity_update_event', []),
+      'TEAM_INVITE_CREATE': ('team_invite_create_event', []),
     };
 
     // Handled by the client, but neither the API nor the gateway sends them.
@@ -334,10 +476,187 @@ void main() {
         test('$type ($variant)', () {
           final payload = dispatch(type, json);
           expect(payload, isNotNull);
-          expect(payload, isNot(isA<UnknownEvent>()));
+          // A type of its own: the events added after 1.0.1 are UnknownEvents
+          // too, but not only.
+          expect(payload.runtimeType, isNot(UnknownEvent));
         });
       }
     }
+
+    test('the events added after 1.0.1 are still UnknownEvents', () {
+      // As they came before: code that read them by type and data still
+      // does, and a switch that handles UnknownEvent still covers them.
+      for (final (type, name) in [
+        ('MESSAGE_PIN_UPDATE', 'message_pin_update_event'),
+        ('DM_MESSAGE_PIN_UPDATE', 'dm_message_pin_update_event'),
+        ('RECORDING', 'typing_event'),
+        ('DM_RECORDING', 'dm_typing_event'),
+        ('ROOM_REORDER', 'room_reorder_event'),
+        ('USER_ACTIVITY_UPDATE', 'user_activity_update_event'),
+        ('TEAM_INVITE_CREATE', 'team_invite_create_event'),
+      ]) {
+        final json = _load(name, 'full');
+        final e = dispatch(type, json);
+        expect(e, isA<UnknownEvent>(), reason: type);
+        final unknown = e as UnknownEvent;
+        expect((unknown.type, unknown.rawData), (type, json), reason: type);
+        expect(_asOf101(e), 'unknown', reason: type);
+      }
+    });
+
+    test('MESSAGE_PIN_UPDATE: the message, and when it was pinned', () {
+      final json = _load('message_pin_update_event', 'full');
+      final pinned =
+          dispatch('MESSAGE_PIN_UPDATE', json) as MessagePinUpdatedEvent;
+      expect(
+          (pinned.data.id, pinned.data.roomId), (json['id'], json['room_id']));
+      expect(
+          pinned.data.pinnedAt, DateTime.utc(2026, 10, 22, 10, 0, 0, 123, 456));
+      final unpinned = dispatch(
+              'MESSAGE_PIN_UPDATE', _load('message_pin_update_event', 'nulls'))
+          as MessagePinUpdatedEvent;
+      expect(unpinned.data.pinnedAt, isNull);
+    });
+
+    test('DM_MESSAGE_PIN_UPDATE: the message, and when it was pinned', () {
+      final json = _load('dm_message_pin_update_event', 'full');
+      final pinned =
+          dispatch('DM_MESSAGE_PIN_UPDATE', json) as DMMessagePinUpdatedEvent;
+      expect((pinned.data.id, pinned.data.conversationId),
+          (json['id'], json['conversation_id']));
+      expect(pinned.data.pinnedAt, isNotNull);
+      final unpinned = dispatch('DM_MESSAGE_PIN_UPDATE',
+              _load('dm_message_pin_update_event', 'nulls'))
+          as DMMessagePinUpdatedEvent;
+      expect(unpinned.data.pinnedAt, isNull);
+    });
+
+    test('RECORDING and DM_RECORDING: who records where, not typing', () {
+      final room = dispatch('RECORDING', {
+        'user_id': 'u2',
+        'username': 'maya',
+        'alias': 'Maya',
+        'avatar': null,
+        'room_id': 'r1',
+      });
+      expect(room, isA<RecordingStartedEvent>());
+      expect(room, isNot(isA<TypingStartedEvent>()));
+      final r = (room as RecordingStartedEvent).data;
+      expect((r.userId, r.username, r.alias, r.roomId),
+          ('u2', 'maya', 'Maya', 'r1'));
+
+      final dm = dispatch('DM_RECORDING', _load('dm_typing_event', 'nulls'))
+          as DMRecordingStartedEvent;
+      expect((dm.data.conversationId, dm.data.alias), ('s-string', null));
+      expect(dispatch('TYPING', _load('typing_event', 'full')),
+          isNot(isA<RecordingStartedEvent>()));
+    });
+
+    test('ROOM_REORDER: every room, with its position and parent', () {
+      final json = _load('room_reorder_event', 'full');
+      final e = dispatch('ROOM_REORDER', json) as RoomReorderedEvent;
+      final room = e.data.rooms.single;
+      final sent = (json['rooms'] as List).single as Map<String, dynamic>;
+      expect((room.id, room.spaceId, room.parentId, room.position),
+          (sent['id'], sent['space_id'], sent['parent_id'], 2));
+      final none =
+          dispatch('ROOM_REORDER', _load('room_reorder_event', 'nulls'))
+              as RoomReorderedEvent;
+      expect(none.data.rooms, isEmpty);
+    });
+
+    test('USER_ACTIVITY_UPDATE: the activities, none when cleared', () {
+      final e = dispatch('USER_ACTIVITY_UPDATE',
+              _load('user_activity_update_event', 'full'))
+          as UserActivityUpdatedEvent;
+      expect(e.data.userId, 's-string');
+      final a = e.data.activities.single;
+      expect(a.type, ActivityType.listening);
+      expect(
+          (a.name, a.details, a.state), ('s-string', 's-string', 's-string'));
+      expect((a.timestamps!.start, a.timestamps!.end), (2, 2));
+      expect((
+        a.assets!.largeImage,
+        a.assets!.largeText,
+        a.assets!.smallImage,
+        a.assets!.smallText,
+      ), (
+        's-string',
+        's-string',
+        's-string',
+        's-string'
+      ));
+
+      // Cleared: an empty list, or null.
+      final json = _load('user_activity_update_event', 'nulls');
+      for (final cleared in [json, _withNull(json, 'activities')]) {
+        final e = dispatch('USER_ACTIVITY_UPDATE', cleared)
+            as UserActivityUpdatedEvent;
+        expect(e.data.activities, isEmpty);
+      }
+    });
+
+    test('an activity as the gateway leaves it: playing, with a name alone',
+        () {
+      final a = Activity.fromJson({'name': 'Visual Studio Code'});
+      expect((a.type, a.name), (ActivityType.playing, 'Visual Studio Code'));
+      expect((a.details, a.state, a.timestamps, a.assets),
+          (null, null, null, null));
+    });
+
+    test('TEAM_INVITE_CREATE: the invite, as the list of them has it', () {
+      final json = _load('team_invite_create_event', 'full');
+      final e = dispatch('TEAM_INVITE_CREATE', json) as TeamInviteCreatedEvent;
+      expect((e.data.id, e.data.teamName, e.data.invitedByUsername),
+          (json['id'], json['team_name'], json['invited_by_username']));
+      expect(e.data.createdAt, DateTime.utc(2026, 10, 22, 10, 0, 0, 123, 456));
+    });
+
+    test('SPACE_CREATE: the members\' activities, none when left out', () {
+      final full = dispatch('SPACE_CREATE', _load('space_create_event', 'full'))
+          as SpaceCreateEvent;
+      final activity = full.data.activities['s-string']!.single;
+      expect(
+          (activity.type, activity.name), (ActivityType.listening, 's-string'));
+      // A bot's leaves them out.
+      final nulls =
+          dispatch('SPACE_CREATE', _load('space_create_event', 'nulls'))
+              as SpaceCreateEvent;
+      expect(nulls.data.activities, isEmpty);
+    });
+
+    test('SPACE_MEMBER_ADD: who joined, with their status and user', () {
+      final json = _load('space_member_add_event', 'full');
+      final added = dispatch('SPACE_MEMBER_ADD', json) as SpaceMemberAddedEvent;
+      expect((added.data.userId, added.data.memberId, added.data.spaceId),
+          (json['user_id'], json['member_id'], json['space_id']));
+      expect(added.data.statusId, UserStatus.dnd);
+      expect(added.data.user?.id, (json['user'] as Map)['id']);
+      // omitempty: the user when the API has it.
+      final bare =
+          dispatch('SPACE_MEMBER_ADD', _load('space_member_add_event', 'nulls'))
+              as SpaceMemberAddedEvent;
+      expect((bare.data.statusId, bare.data.user), (UserStatus.dnd, null));
+
+      final removed = dispatch(
+              'SPACE_MEMBER_REMOVE', _load('space_member_remove_event', 'full'))
+          as SpaceMemberRemovedEvent;
+      expect(removed.data.userId, isNotNull);
+      expect((removed.data.statusId, removed.data.user), (null, null));
+    });
+
+    test('USER_STATUS_UPDATE: a bot\'s carries its space; a person\'s none',
+        () {
+      final json = _load('user_status_update_event', 'full');
+      final bot =
+          dispatch('USER_STATUS_UPDATE', json) as UserStatusUpdatedEvent;
+      expect(bot.data.spaceId, json['space_id']);
+      final person = dispatch(
+              'USER_STATUS_UPDATE', _load('user_status_update_event', 'nulls'))
+          as UserStatusUpdatedEvent;
+      expect(
+          (person.data.spaceId, person.data.statusId), (null, UserStatus.dnd));
+    });
 
     test('READY: active_calls can be null; the session token is camelCase', () {
       final e = dispatch(
@@ -406,6 +725,27 @@ void main() {
 
     test('an event the client doesn\'t know', () {
       expect(dispatch('SOMETHING_NEW', {'a': 1}), isA<UnknownEvent>());
+      expect(_asOf101(dispatch('SOMETHING_NEW', {'a': 1})!), 'unknown');
+    });
+
+    test('the reason the gateway closes a socket with', () {
+      // What session.go's SendCloseReason writes.
+      final close = GatewayCloseReason.fromJson({
+        'event': 'close-with-reason',
+        'code': 4004,
+        'reason': 'session ended'
+      });
+      expect((close.code, close.reason),
+          (GatewayCloseCode.invalidCredentials, 'session ended'));
+      expect((
+        GatewayCloseCode.invalidShard,
+        GatewayCloseCode.notIdentified,
+        GatewayCloseCode.alreadyIdentified,
+      ), (
+        4000,
+        4003,
+        4005
+      ));
     });
   });
 

@@ -335,6 +335,19 @@ class MessageReference {
       };
 }
 
+/// What a new message says about the mentions it makes beyond the users its
+/// text names (`allowed_mentions`).
+class AllowedMentions {
+  /// Whether a reply mentions the author of the message it replies to. A
+  /// reply sent without [AllowedMentions] does; false sends it without
+  /// notifying them. The API ignores it for a message that isn't a reply.
+  final bool repliedUser;
+
+  const AllowedMentions({required this.repliedUser});
+
+  Map<String, dynamic> toJson() => {'replied_user': repliedUser};
+}
+
 class ReferencedMessage {
   final int? type;
   final String? messageId;
@@ -346,6 +359,13 @@ class ReferencedMessage {
   final String? authorAvatar;
   final DateTime? createdAt;
 
+  /// Whether the reply mentions the author of the message it replies to: it
+  /// was sent without [AllowedMentions] or with [AllowedMentions.repliedUser],
+  /// that message is someone else's (not a webhook's, nor a pin notice), and
+  /// they could see the reply then. It stays once that message is deleted.
+  /// False from an API from before it.
+  final bool mentionAuthor;
+
   const ReferencedMessage({
     this.type,
     this.messageId,
@@ -356,6 +376,7 @@ class ReferencedMessage {
     this.authorName,
     this.authorAvatar,
     this.createdAt,
+    this.mentionAuthor = false,
   });
 
   ReferencedMessage.fromJson(Map<String, dynamic> j)
@@ -369,7 +390,8 @@ class ReferencedMessage {
         authorAvatar = j['author_avatar'] as String?,
         createdAt = j['created_at'] != null
             ? DateTime.parse(j['created_at'] as String)
-            : null;
+            : null,
+        mentionAuthor = j['mention_author'] as bool? ?? false;
 }
 
 class MessageReaction {
@@ -393,6 +415,14 @@ class MessageReaction {
 
 /// The bits of [GatewayMessage.flags].
 abstract final class MessageFlag {
+  /// A bot's response to an interaction, or a follow-up, that only the person
+  /// who used the interaction sees: it reaches their sessions alone, as
+  /// MESSAGE_CREATE, MESSAGE_UPDATE and MESSAGE_DELETE, and isn't one of the
+  /// room's messages (no history, search, pins, reactions or replies). The
+  /// API keeps it while an interaction's token can reach it (15 minutes), and
+  /// only that token edits or deletes it.
+  static const ephemeral = 1 << 6;
+
   /// A bot's deferred response to an interaction, which it completes by
   /// editing the message.
   static const loading = 1 << 7;
@@ -1059,7 +1089,7 @@ final class ConversationType extends EnumLike<int, ConversationType> {
   const ConversationType(super.value);
 }
 
-/// The short form of a user that conversation members and DMs carry.
+/// The user that conversation members and DMs carry: the API's public user.
 class ConversationUser {
   final String id;
   final String username;
@@ -1069,6 +1099,19 @@ class ConversationUser {
   final int? badges;
   final bool isBot;
 
+  /// The bio, empty when there's none.
+  final String custom;
+  final int flags;
+  final bool? emailVerified;
+
+  /// When the account was made and last changed: null only in a user built
+  /// without them, as the API always sends them.
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  /// When the account was deleted; null while it isn't.
+  final DateTime? deletedAt;
+
   const ConversationUser({
     required this.id,
     required this.username,
@@ -1077,6 +1120,12 @@ class ConversationUser {
     this.banner,
     this.badges,
     this.isBot = false,
+    this.custom = '',
+    this.flags = 0,
+    this.emailVerified,
+    this.createdAt,
+    this.updatedAt,
+    this.deletedAt,
   });
 
   ConversationUser.fromJson(Map<String, dynamic> j)
@@ -1086,7 +1135,13 @@ class ConversationUser {
         avatar = j['avatar'] as String?,
         banner = j['banner'] as String?,
         badges = j['badges'] as int?,
-        isBot = j['is_bot'] as bool? ?? false;
+        isBot = j['is_bot'] as bool? ?? false,
+        custom = j['custom'] as String? ?? '',
+        flags = j['flags'] as int? ?? 0,
+        emailVerified = j['email_verified'] as bool?,
+        createdAt = _parseDate(j['created_at']),
+        updatedAt = _parseDate(j['updated_at']),
+        deletedAt = _parseDate(j['deleted_at']);
 }
 
 class ConversationMember {
@@ -1485,6 +1540,89 @@ class GatewayReadyData {
 }
 
 // ---------------------------------------------------------------------------
+// Activities
+// ---------------------------------------------------------------------------
+
+/// The values [Activity.type] takes.
+abstract final class ActivityType {
+  /// A game or another app: the gateway leaves the type out.
+  static const playing = 0;
+
+  /// Music. Spotify's, as the desktop app shares it, has the song in
+  /// [Activity.details], the artist in [Activity.state], the album in
+  /// [ActivityAssets.largeText], and the song's start and end.
+  static const listening = 2;
+}
+
+/// When an activity started and when it ends, in Unix milliseconds.
+class ActivityTimestamps {
+  final int? start;
+  final int? end;
+
+  const ActivityTimestamps({this.start, this.end});
+
+  ActivityTimestamps.fromJson(Map<String, dynamic> j)
+      : start = j['start'] as int?,
+        end = j['end'] as int?;
+}
+
+/// An activity's images (a URL, or a small data URI) and their texts.
+class ActivityAssets {
+  final String? largeImage;
+  final String? largeText;
+  final String? smallImage;
+  final String? smallText;
+
+  const ActivityAssets(
+      {this.largeImage, this.largeText, this.smallImage, this.smallText});
+
+  ActivityAssets.fromJson(Map<String, dynamic> j)
+      : largeImage = j['large_image'] as String?,
+        largeText = j['large_text'] as String?,
+        smallImage = j['small_image'] as String?,
+        smallText = j['small_text'] as String?;
+}
+
+/// What a user is doing, as an app of theirs tells the gateway
+/// (ACTIVITY_UPDATE): a game, or the song Spotify plays.
+class Activity {
+  /// An [ActivityType].
+  final int type;
+  final String name;
+  final String? details;
+  final String? state;
+  final ActivityTimestamps? timestamps;
+  final ActivityAssets? assets;
+
+  const Activity({
+    this.type = ActivityType.playing,
+    required this.name,
+    this.details,
+    this.state,
+    this.timestamps,
+    this.assets,
+  });
+
+  Activity.fromJson(Map<String, dynamic> j)
+      : type = j['type'] as int? ?? ActivityType.playing,
+        name = j['name'] as String,
+        details = j['details'] as String?,
+        state = j['state'] as String?,
+        timestamps = j['timestamps'] != null
+            ? ActivityTimestamps.fromJson(
+                j['timestamps'] as Map<String, dynamic>)
+            : null,
+        assets = j['assets'] != null
+            ? ActivityAssets.fromJson(j['assets'] as Map<String, dynamic>)
+            : null;
+}
+
+List<Activity> _activities(Object? list) => [
+      for (final a in list as List<dynamic>? ?? const [])
+        Activity.fromJson(a as Map<String, dynamic>),
+    ];
+
+// ---------------------------------------------------------------------------
 // Gateway event payloads (non-ready)
 // ---------------------------------------------------------------------------
 
@@ -1501,6 +1639,11 @@ class GatewaySpaceCreatePayload {
   /// presence to start from, which USER_STATUS_UPDATE keeps current.
   final Map<String, UserStatus> memberStatuses;
 
+  /// What the space's members connected now are doing, by user ID: the
+  /// activities to start from, which USER_ACTIVITY_UPDATE keeps current.
+  /// None in a bot's.
+  final Map<String, List<Activity>> activities;
+
   const GatewaySpaceCreatePayload({
     required this.space,
     required this.rooms,
@@ -1510,6 +1653,7 @@ class GatewaySpaceCreatePayload {
     required this.ownerId,
     this.voiceStates,
     this.memberStatuses = const {},
+    this.activities = const {},
   });
 
   GatewaySpaceCreatePayload.fromJson(Map<String, dynamic> j)
@@ -1534,7 +1678,9 @@ class GatewaySpaceCreatePayload {
             ?.map((e) => GatewayVoiceState.fromJson(e as Map<String, dynamic>))
             .toList(),
         memberStatuses = (j['member_statuses'] as Map<String, dynamic>? ?? {})
-            .map((k, v) => MapEntry(k, UserStatus.fromInt(v as int)));
+            .map((k, v) => MapEntry(k, UserStatus.fromInt(v as int))),
+        activities = (j['activities'] as Map<String, dynamic>? ?? {})
+            .map((k, v) => MapEntry(k, _activities(v)));
 }
 
 // ---------------------------------------------------------------------------
@@ -1554,11 +1700,80 @@ class GatewayMessageDelete {
 class GatewayUserStatusUpdate {
   final String userId;
   final UserStatus statusId;
-  const GatewayUserStatusUpdate({required this.userId, required this.statusId});
+
+  /// The space this status is for: a bot also has one per space, online
+  /// while the shard that holds the space is connected, which comes first in
+  /// that space (as the desktop app reads them). Null for a status that holds
+  /// everywhere: a person's, or a bot's overall one.
+  final String? spaceId;
+  const GatewayUserStatusUpdate(
+      {required this.userId, required this.statusId, this.spaceId});
 
   GatewayUserStatusUpdate.fromJson(Map<String, dynamic> j)
       : userId = j['user_id'] as String,
-        statusId = UserStatus.fromInt(j['status_id'] as int);
+        statusId = UserStatus.fromInt(j['status_id'] as int),
+        spaceId = j['space_id'] as String?;
+}
+
+/// MESSAGE_PIN_UPDATE: a message of a room was pinned or unpinned. A pin also
+/// posts the room's pin notice, which comes as a MESSAGE_CREATE of type
+/// [MessageType.pinNotice].
+class MessagePinUpdateEvent {
+  final String id;
+  final String roomId;
+
+  /// When it was pinned; null once it's unpinned.
+  final DateTime? pinnedAt;
+  const MessagePinUpdateEvent(
+      {required this.id, required this.roomId, this.pinnedAt});
+  MessagePinUpdateEvent.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String,
+        roomId = j['room_id'] as String,
+        pinnedAt = _parseDate(j['pinned_at']);
+}
+
+/// DM_MESSAGE_PIN_UPDATE: a message of a conversation was pinned or unpinned.
+/// A pin also posts the conversation's pin notice, which comes as a
+/// DM_MESSAGE_CREATE of type [MessageType.pinNotice].
+class DMMessagePinUpdateEvent {
+  final String id;
+  final String conversationId;
+
+  /// When it was pinned; null once it's unpinned.
+  final DateTime? pinnedAt;
+  const DMMessagePinUpdateEvent(
+      {required this.id, required this.conversationId, this.pinnedAt});
+  DMMessagePinUpdateEvent.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String,
+        conversationId = j['conversation_id'] as String,
+        pinnedAt = _parseDate(j['pinned_at']);
+}
+
+/// ROOM_REORDER: every room of a space, with its position and parent, after
+/// one of them moved.
+class RoomReorderEvent {
+  final List<GatewayRoom> rooms;
+  const RoomReorderEvent({required this.rooms});
+  RoomReorderEvent.fromJson(Map<String, dynamic> j)
+      : rooms = [
+          for (final r in j['rooms'] as List<dynamic>? ?? const [])
+            GatewayRoom.fromJson(r as Map<String, dynamic>),
+        ];
+}
+
+/// USER_ACTIVITY_UPDATE: a user's activities changed. It comes once for each
+/// space shared with them. A user who goes offline loses theirs without one:
+/// their USER_STATUS_UPDATE to [UserStatus.offline] says so.
+class UserActivityUpdateEvent {
+  final String userId;
+
+  /// Empty when they cleared them.
+  final List<Activity> activities;
+  const UserActivityUpdateEvent(
+      {required this.userId, this.activities = const []});
+  UserActivityUpdateEvent.fromJson(Map<String, dynamic> j)
+      : userId = j['user_id'] as String,
+        activities = _activities(j['activities']);
 }
 
 class SpaceDeleteEvent {
@@ -1837,13 +2052,39 @@ class MemberRoleEvent {
         spaceId = j['space_id'] as String?;
 }
 
+/// SPACE_MEMBER_ADD and SPACE_MEMBER_REMOVE: someone joined or left a space.
 class SpaceMemberEvent {
   final String memberId;
   final String spaceId;
-  const SpaceMemberEvent({required this.memberId, required this.spaceId});
+
+  /// Who joined or left: both events carry it.
+  final String? userId;
+
+  /// SPACE_MEMBER_ADD's: the new member's status, as USER_STATUS_UPDATE would
+  /// give it, which carries its changes from now on. Null in
+  /// SPACE_MEMBER_REMOVE.
+  final UserStatus? statusId;
+
+  /// SPACE_MEMBER_ADD's: the new member's user, when the API has it.
+  final GatewayUser? user;
+  const SpaceMemberEvent({
+    required this.memberId,
+    required this.spaceId,
+    this.userId,
+    this.statusId,
+    this.user,
+  });
   SpaceMemberEvent.fromJson(Map<String, dynamic> j)
       : memberId = j['member_id'] as String,
-        spaceId = j['space_id'] as String;
+        spaceId = j['space_id'] as String,
+        userId = j['user_id'] as String?,
+        statusId = switch (j['status_id'] as int?) {
+          final s? => UserStatus.fromInt(s),
+          null => null,
+        },
+        user = j['user'] != null
+            ? GatewayUser.fromJson(j['user'] as Map<String, dynamic>)
+            : null;
 }
 
 class GuildMemberAddEvent {
@@ -2440,8 +2681,64 @@ class CallEndedPayloadEvent extends GatewayEventPayload {
   const CallEndedPayloadEvent(this.data);
 }
 
+/// An event this package doesn't parse: its [type] and data as they came.
+///
+/// The events this package learned to parse after 1.0.1 extend it
+/// ([MessagePinUpdatedEvent] and those after it here), as they came as one
+/// before: a `switch` over [GatewayEventPayload] written before them still
+/// covers them, and code that read one of them as an [UnknownEvent], by
+/// [type] and [rawData], still does. Match them before [UnknownEvent] to read
+/// their typed `data`.
 class UnknownEvent extends GatewayEventPayload {
   final String type;
   final Map<String, dynamic>? rawData;
   const UnknownEvent(this.type, this.rawData);
+}
+
+class MessagePinUpdatedEvent extends UnknownEvent {
+  final MessagePinUpdateEvent data;
+  const MessagePinUpdatedEvent(this.data, [Map<String, dynamic>? rawData])
+      : super('MESSAGE_PIN_UPDATE', rawData);
+}
+
+class DMMessagePinUpdatedEvent extends UnknownEvent {
+  final DMMessagePinUpdateEvent data;
+  const DMMessagePinUpdatedEvent(this.data, [Map<String, dynamic>? rawData])
+      : super('DM_MESSAGE_PIN_UPDATE', rawData);
+}
+
+/// RECORDING: someone is recording a voice message in a room, with what
+/// TYPING carries. Like TYPING, it takes no sequence number, and a resume
+/// doesn't replay it.
+class RecordingStartedEvent extends UnknownEvent {
+  final TypingEvent data;
+  const RecordingStartedEvent(this.data, [Map<String, dynamic>? rawData])
+      : super('RECORDING', rawData);
+}
+
+/// DM_RECORDING: [RecordingStartedEvent] for a conversation.
+class DMRecordingStartedEvent extends UnknownEvent {
+  final DMTypingEvent data;
+  const DMRecordingStartedEvent(this.data, [Map<String, dynamic>? rawData])
+      : super('DM_RECORDING', rawData);
+}
+
+class RoomReorderedEvent extends UnknownEvent {
+  final RoomReorderEvent data;
+  const RoomReorderedEvent(this.data, [Map<String, dynamic>? rawData])
+      : super('ROOM_REORDER', rawData);
+}
+
+class UserActivityUpdatedEvent extends UnknownEvent {
+  final UserActivityUpdateEvent data;
+  const UserActivityUpdatedEvent(this.data, [Map<String, dynamic>? rawData])
+      : super('USER_ACTIVITY_UPDATE', rawData);
+}
+
+/// TEAM_INVITE_CREATE: the user was invited to a developer team. The invite
+/// is the one `listMyTeamInvites` lists, until it's accepted or declined.
+class TeamInviteCreatedEvent extends UnknownEvent {
+  final TeamInvite data;
+  const TeamInviteCreatedEvent(this.data, [Map<String, dynamic>? rawData])
+      : super('TEAM_INVITE_CREATE', rawData);
 }
