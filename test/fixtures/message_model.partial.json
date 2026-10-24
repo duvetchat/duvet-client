@@ -28,5 +28,6 @@
       "avatar": null
     },
     "name": "s-string"
-  }
+  },
+  "ref_mention_author": false
 }

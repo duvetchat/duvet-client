@@ -1271,6 +1271,11 @@ class Friend {
   final String? userAlias;
   final String? userAvatar;
 
+  /// The friend's status as the list was read, whether or not a space is
+  /// shared with them; USER_STATUS_UPDATE carries its changes. Null from an
+  /// API before friends' statuses.
+  final UserStatus? statusId;
+
   const Friend({
     required this.id,
     required this.requestId,
@@ -1279,6 +1284,7 @@ class Friend {
     required this.userUsername,
     this.userAlias,
     this.userAvatar,
+    this.statusId,
   });
 
   Friend.fromJson(Map<String, dynamic> j)
@@ -1288,7 +1294,11 @@ class Friend {
         recipientId = j['recipient_id'] as String,
         userUsername = j['user_username'] as String,
         userAlias = j['user_alias'] as String?,
-        userAvatar = j['user_avatar'] as String?;
+        userAvatar = j['user_avatar'] as String?,
+        statusId = switch (j['status_id'] as int?) {
+          final s? => UserStatus.fromInt(s),
+          null => null,
+        };
 }
 
 /// FRIEND_REQUEST_CREATE: the request, with its sender's details.

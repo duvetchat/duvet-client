@@ -44,6 +44,7 @@
     "message_id": null,
     "room_id": null,
     "space_id": null,
+    "mention_author": false,
     "author_id": "s-string",
     "author_name": "s-string"
   },

@@ -221,7 +221,14 @@ void main() {
     _parses('conversation_member_row', ConversationMember.fromJson);
     // Answered by adding a member when the list doesn't have them yet.
     _parses('conversation_member', ConversationMember.fromJson);
-    _parses('friend', Friend.fromJson);
+    _parses('friend', Friend.fromJson,
+        check: (f, _) => expect(f.statusId, UserStatus.dnd));
+    test('a friend\'s status: none from an older API', () {
+      expect(
+          Friend.fromJson(_without(_load('friend', 'full'), 'status_id'))
+              .statusId,
+          isNull);
+    });
     _parses('friend_request_row', FriendRequest.fromJson);
     _parses('friend_request', FriendRequest.fromJson);
 
