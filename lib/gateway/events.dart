@@ -139,6 +139,8 @@ mixin GatewayEvents {
       onEvent.whereType<VoiceStateUpdatedEvent>();
   Stream<VoiceJoinedPayloadEvent> get onVoiceJoin =>
       onEvent.whereType<VoiceJoinedPayloadEvent>();
+  Stream<VoiceSessionReplacedPayloadEvent> get onVoiceSessionReplaced =>
+      onEvent.whereType<VoiceSessionReplacedPayloadEvent>();
 
   Stream<CallIncomingPayloadEvent> get onCallIncoming =>
       onEvent.whereType<CallIncomingPayloadEvent>();

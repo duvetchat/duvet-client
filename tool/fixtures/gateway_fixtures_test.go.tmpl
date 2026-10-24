@@ -17,6 +17,7 @@ func TestWriteFixtures(t *testing.T) {
 	w("call_member_event", of[gw.CallMemberEvent])
 	w("call_ended_event", of[gw.CallEndedEvent])
 	w("voice_joined_event", of[gw.VoiceJoinedEvent])
+	w("voice_session_replaced_event", of[gw.VoiceSessionReplacedEvent])
 	w("voice_state_update_event", of[gw.VoiceStateUpdateEvent])
 	w("webrtc_ice_candidate_event", of[gw.WebRTCIceCandidateEvent])
 	w("webrtc_renegotiate_event", of[gw.WebRTCRenegotiateEvent])
