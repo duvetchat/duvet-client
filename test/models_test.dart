@@ -60,6 +60,8 @@ void main() {
   group('users', () {
     _parses('user_me', UserMeResult.fromJson, check: (u, variant) {
       expect(u.createdAt, DateTime.utc(2026, 10, 22, 10, 0, 0, 123, 456));
+      // The status the user chose: left out for a bot, and by an older API.
+      expect(u.status, variant == 'full' ? UserStatus.dnd : isNull);
     });
     _parses('user', GatewayUser.fromJson);
     _parses('user', BotUser.fromJson);
@@ -342,6 +344,26 @@ void main() {
       for (final json in _variants('bot_ready_event').values) {
         expect(dispatch('READY', json), isA<ReadyEvent>());
       }
+    });
+
+    test('READY: the status the user chose; none from an older gateway', () {
+      for (final json in _variants('ready_event').values) {
+        final e = dispatch('READY', json) as ReadyEvent;
+        expect(e.data.user.status, UserStatus.dnd);
+      }
+      final json = _load('ready_event', 'full');
+      final user = _without(json['user'] as Map<String, dynamic>, 'status');
+      final older = dispatch('READY', {...json, 'user': user}) as ReadyEvent;
+      expect(older.data.user.status, isNull);
+    });
+
+    test('USER_UPDATE carries the bio; an older API leaves it out', () {
+      final json = _load('user_update_event', 'full');
+      final e = dispatch('USER_UPDATE', json) as UserUpdatedEvent;
+      expect(e.data.custom, json['custom']);
+      final older =
+          dispatch('USER_UPDATE', _without(json, 'custom')) as UserUpdatedEvent;
+      expect(older.data.custom, isNull);
     });
 
     test('SPACE_CREATE: rooms and roles are maps by ID', () {

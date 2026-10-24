@@ -22,6 +22,11 @@ const _voiceNoteTypes = {
 /// How many members a page of [RestMethods.getSpaceMembers] has.
 const membersPageSize = 50;
 
+/// How long a bio ([RestMethods.updateUser]'s `custom`) may be once trimmed,
+/// in characters as the API counts them: Unicode code points ([String.runes]),
+/// so an emoji such as 😀 is one where [String.length] counts two.
+const maxBioLength = 190;
+
 /// A file part of a multipart request.
 typedef FilePart = ({String field, List<int> bytes, String filename});
 
@@ -1155,14 +1160,19 @@ mixin RestMethods {
     return UserMeResult.fromJson(_decodeMap(response));
   }
 
-  /// Updates the user. Only the arguments given are sent; [clearAlias] sends
-  /// null for the alias.
+  /// Updates the user. Only the arguments given are sent, and the API keeps
+  /// what's left out, but an API from before bios clears the alias when it's
+  /// left out: send it to keep it. [clearAlias] sends null for the alias.
+  /// [custom] is the bio: the API trims it and takes [maxBioLength] characters
+  /// at most (a 400 past that), and an empty one clears it. An API from before
+  /// bios ignores it, and answers the bio it had.
   Future<UserMeResult> updateUser({
     String? username,
     String? alias,
     bool clearAlias = false,
     String? avatar,
     String? banner,
+    String? custom,
   }) async {
     final response =
         await request('PATCH', '/api/users/@me', 'update user', json: {
@@ -1170,7 +1180,24 @@ mixin RestMethods {
       if (alias != null || clearAlias) 'alias': alias,
       if (avatar != null) 'avatar': avatar,
       if (banner != null) 'banner': banner,
+      if (custom != null) 'custom': custom,
     });
+    return UserMeResult.fromJson(_decodeMap(response));
+  }
+
+  /// Chooses the user's status: [UserStatus.online] or [UserStatus.dnd] (do
+  /// not disturb), which the people they share a space with see while they're
+  /// connected; every session of theirs gets it as USER_STATUS_UPDATE.
+  /// Answers the user, with [UserMeResult.status]. Offline isn't a choice (an
+  /// [ArgumentError]: the gateway says it when they have no connection), and
+  /// a bot can't choose (403).
+  Future<UserMeResult> setStatus(UserStatus status) async {
+    if (status != UserStatus.online && status != UserStatus.dnd) {
+      throw ArgumentError.value(
+          status.value, 'status', 'must be online (1) or dnd (2)');
+    }
+    final response = await request('PUT', '/api/users/@me/status', 'set status',
+        json: {'status': status.value});
     return UserMeResult.fromJson(_decodeMap(response));
   }
 

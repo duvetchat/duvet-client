@@ -4,6 +4,7 @@
   "alias": "s-string",
   "avatar": "s-string",
   "banner": "s-string",
+  "custom": "s-string",
   "flags": 2,
   "badges": 2
 }
