@@ -200,6 +200,104 @@ class StorageBucket {
         updatedAt = DateTime.parse(j['updated_at'] as String);
 }
 
+/// The values [StorageTransfer.status] takes.
+abstract final class StorageTransferStatus {
+  static const queued = 0;
+  static const moving = 1;
+  static const done = 2;
+
+  /// Stopped on an error: what it didn't move stays in the source.
+  static const failed = 3;
+
+  /// Stopped by a person: what it moved stays in the target.
+  static const cancelled = 4;
+}
+
+/// A move of a user's or a space's files from one of its storages to
+/// another, as STORAGE_TRANSFER_UPDATE carries it. A null bucket is the
+/// default storage.
+class StorageTransfer {
+  final String id;
+
+  /// The user or the space whose files move.
+  final String ownerId;
+
+  /// Who started it: the only one its STORAGE_TRANSFER_UPDATEs reach.
+  final String startedBy;
+  final String? sourceBucketId;
+  final String? targetBucketId;
+
+  /// The originals stay in the source: asked for, or because the API
+  /// couldn't tell whether the source and the target are one bucket.
+  final bool keepSource;
+
+  /// The source and the target are one bucket under two configurations: only
+  /// the rows change.
+  final bool sameBucket;
+
+  /// A [StorageTransferStatus].
+  final int status;
+
+  /// Why it failed (`target full`, `source unreachable: …`); null otherwise.
+  final String? error;
+  final int totalFiles;
+  final int totalBytes;
+  final int movedFiles;
+  final int movedBytes;
+
+  /// Left where they were: deleted meanwhile, moved by something else, or
+  /// too large for the target.
+  final int skippedFiles;
+  final int failedFiles;
+  final DateTime createdAt;
+  final DateTime? startedAt;
+  final DateTime? finishedAt;
+  final DateTime updatedAt;
+
+  const StorageTransfer({
+    required this.id,
+    required this.ownerId,
+    required this.startedBy,
+    this.sourceBucketId,
+    this.targetBucketId,
+    required this.keepSource,
+    required this.sameBucket,
+    required this.status,
+    this.error,
+    required this.totalFiles,
+    required this.totalBytes,
+    required this.movedFiles,
+    required this.movedBytes,
+    required this.skippedFiles,
+    required this.failedFiles,
+    required this.createdAt,
+    this.startedAt,
+    this.finishedAt,
+    required this.updatedAt,
+  });
+
+  StorageTransfer.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String,
+        ownerId = j['owner_id'] as String,
+        startedBy = j['started_by'] as String,
+        sourceBucketId = j['source_bucket_id'] as String?,
+        targetBucketId = j['target_bucket_id'] as String?,
+        keepSource = j['keep_source'] as bool? ?? false,
+        sameBucket = j['same_bucket'] as bool? ?? false,
+        status = j['status'] as int,
+        error = j['error'] as String?,
+        totalFiles = j['total_files'] as int? ?? 0,
+        totalBytes = j['total_bytes'] as int? ?? 0,
+        movedFiles = j['moved_files'] as int? ?? 0,
+        movedBytes = j['moved_bytes'] as int? ?? 0,
+        skippedFiles = j['skipped_files'] as int? ?? 0,
+        failedFiles = j['failed_files'] as int? ?? 0,
+        createdAt = DateTime.parse(j['created_at'] as String),
+        startedAt = _parseDate(j['started_at']),
+        finishedAt = _parseDate(j['finished_at']),
+        updatedAt = DateTime.parse(j['updated_at'] as String);
+}
+
 /// What creating or updating a [StorageBucket] takes.
 class BucketPayload {
   final String name;

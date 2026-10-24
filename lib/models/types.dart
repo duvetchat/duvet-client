@@ -1388,12 +1388,18 @@ class FriendRequestAcceptEvent {
   final String recipientId;
   final GatewayUser? user;
 
+  /// The status [user] shows, as USER_STATUS_UPDATE gives it, which brings
+  /// its changes from now on: friends hear each other's. Null from an API
+  /// before it.
+  final UserStatus? statusId;
+
   const FriendRequestAcceptEvent({
     required this.id,
     required this.requestId,
     required this.senderId,
     required this.recipientId,
     this.user,
+    this.statusId,
   });
 
   FriendRequestAcceptEvent.fromJson(Map<String, dynamic> j)
@@ -1403,7 +1409,11 @@ class FriendRequestAcceptEvent {
         recipientId = j['recipient_id'] as String,
         user = j['user'] != null
             ? GatewayUser.fromJson(j['user'] as Map<String, dynamic>)
-            : null;
+            : null,
+        statusId = switch (j['status_id'] as int?) {
+          final s? => UserStatus.fromInt(s),
+          null => null,
+        };
 }
 
 // ---------------------------------------------------------------------------
@@ -1501,6 +1511,11 @@ class GatewayReadyData {
   /// The STUN and TURN servers for voice and calls; none in a bot's READY.
   final List<IceServer> iceServers;
 
+  /// The spaces whose SPACE_CREATE comes after READY, by ID: all the user's,
+  /// or for a bot those its shard holds. The desktop app counts them to know
+  /// when every space has come.
+  final List<String> guildIds;
+
   const GatewayReadyData({
     required this.user,
     required this.sessionToken,
@@ -1511,6 +1526,7 @@ class GatewayReadyData {
     this.activeCalls,
     this.spaces,
     this.iceServers = const [],
+    this.guildIds = const [],
   });
 
   GatewayReadyData.fromJson(Map<String, dynamic> j)
@@ -1536,6 +1552,10 @@ class GatewayReadyData {
         iceServers = [
           for (final s in j['ice_servers'] as List<dynamic>? ?? const [])
             IceServer.fromJson(s as Map<String, dynamic>),
+        ],
+        guildIds = [
+          for (final id in j['guild_ids'] as List<dynamic>? ?? const [])
+            id as String,
         ];
 }
 
@@ -1854,20 +1874,29 @@ class UserUpdateEvent {
   /// The bio, empty when there's none. Null from an API from before bios,
   /// which leaves it out: the one known then stays.
   final String? custom;
+
+  /// [GatewayUser.flags] and [GatewayUser.badges] as they are now. Null from
+  /// an API that leaves them out, as before bios: the ones known then stay.
+  final int? flags;
+  final int? badges;
   const UserUpdateEvent(
       {required this.id,
       required this.username,
       this.alias,
       this.avatar,
       this.banner,
-      this.custom});
+      this.custom,
+      this.flags,
+      this.badges});
   UserUpdateEvent.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
         username = j['username'] as String,
         alias = j['alias'] as String?,
         avatar = j['avatar'] as String?,
         banner = j['banner'] as String?,
-        custom = j['custom'] as String?;
+        custom = j['custom'] as String?,
+        flags = j['flags'] as int?,
+        badges = j['badges'] as int?;
 }
 
 /// VOICE_STATE_UPDATE: a user's whole voice state in a space's voice room or
@@ -2027,6 +2056,41 @@ class VoiceSessionReplacedEvent {
   VoiceSessionReplacedEvent.fromJson(Map<String, dynamic> j)
       : roomId = j['room_id'] as String,
         reason = j['reason'] as String?;
+}
+
+/// VOICE_VIDEO_REFUSED: the gateway refused or stopped one of the user's
+/// videos, which only their session in voice is told. A refusal changes no
+/// state, so no VOICE_STATE_UPDATE comes with it; a stopped video comes with
+/// one. The client turns its camera off, or stops sharing its screen, and
+/// tells the user why, as the desktop app does.
+class VoiceVideoRefusedEvent {
+  final String roomId;
+
+  /// "camera" or "screen".
+  final String kind;
+
+  /// Why, for a camera: "permission" (no Video in the room, or the user lost
+  /// it), "limit" (the room or call has [limit] cameras on already), or
+  /// "bitrate" (it sent more than 1.5 Mbps over 10 seconds, and was stopped).
+  /// A screen's is always "permission", and comes once until a VOICE_SYNC
+  /// stops asking for it.
+  final String reason;
+
+  /// How many cameras the room can have on: with "limit" only.
+  final int? limit;
+
+  const VoiceVideoRefusedEvent({
+    required this.roomId,
+    required this.kind,
+    required this.reason,
+    this.limit,
+  });
+
+  VoiceVideoRefusedEvent.fromJson(Map<String, dynamic> j)
+      : roomId = j['room_id'] as String,
+        kind = j['kind'] as String,
+        reason = j['reason'] as String,
+        limit = j['limit'] as int?;
 }
 
 class RoleDeleteEvent {
@@ -2247,13 +2311,20 @@ class FriendRemoveEvent {
       : userId = j['user_id'] as String;
 }
 
+/// CONVERSATION_UPDATE: a group's name and owner as they are now, after it
+/// was renamed or its owner left.
 class ConversationUpdateEvent {
   final String id;
   final String? name;
-  const ConversationUpdateEvent({required this.id, this.name});
+
+  /// When a group's owner leaves and someone stays, the member who joined
+  /// first takes over. Null from an API before it.
+  final String? ownerId;
+  const ConversationUpdateEvent({required this.id, this.name, this.ownerId});
   ConversationUpdateEvent.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
-        name = j['name'] as String?;
+        name = j['name'] as String?,
+        ownerId = j['owner_id'] as String?;
 }
 
 class ConversationDeleteEvent {
@@ -2720,6 +2791,19 @@ class UserActivityUpdatedEvent extends GatewayEventPayload {
 class TeamInviteCreatedEvent extends GatewayEventPayload {
   final TeamInvite data;
   const TeamInviteCreatedEvent(this.data);
+}
+
+class VoiceVideoRefusedPayloadEvent extends GatewayEventPayload {
+  final VoiceVideoRefusedEvent data;
+  const VoiceVideoRefusedPayloadEvent(this.data);
+}
+
+/// STORAGE_TRANSFER_UPDATE: a storage transfer the user started, as it is
+/// now: when it's created, when it starts, as it moves files (every 2
+/// seconds at most), and when it ends.
+class StorageTransferUpdatedEvent extends GatewayEventPayload {
+  final StorageTransfer data;
+  const StorageTransferUpdatedEvent(this.data);
 }
 
 /// An event this package doesn't parse: its [type] and data as they came.

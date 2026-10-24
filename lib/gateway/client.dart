@@ -12,6 +12,26 @@ import 'package:duvet_client/errors.dart';
 /// dropped: 15 seconds.
 const defaultConnectTimeout = Duration(seconds: 15);
 
+const _firstReconnectDelay = Duration(seconds: 1);
+const _maxReconnectDelay = Duration(seconds: 30);
+const _reconnectJitter = Duration(seconds: 1);
+final _random = Random();
+
+/// How long the client waits before it opens another socket, after [failed]
+/// attempts in a row failed to open one (none when an open socket dropped),
+/// as the desktop app waits: a second, doubling with each failure, up to
+/// 30, plus up to a second at random, so that clients don't all come back
+/// at once.
+Duration reconnectDelay(int failed, [Random? random]) {
+  // From 2^5 seconds on it's the cap: a higher power would only overflow.
+  final doubled = _firstReconnectDelay * (1 << min(failed, 5));
+  final base = doubled < _maxReconnectDelay ? doubled : _maxReconnectDelay;
+  return base +
+      Duration(
+          microseconds:
+              (random ?? _random).nextInt(_reconnectJitter.inMicroseconds));
+}
+
 /// Where a gateway connection is.
 enum GatewayConnectionState {
   /// Opening the first socket.
@@ -40,7 +60,8 @@ enum GatewayConnectionState {
 /// It keeps one socket at a time: a new one opens only once the last is
 /// closed, and opening one takes [connectTimeout] at most. When the socket
 /// drops, or stops answering heartbeats, it opens a new one and identifies
-/// again, until [destroy].
+/// again, until [destroy]: a second after the drop, and longer after each
+/// attempt that fails, up to 30 seconds ([reconnectDelay]).
 ///
 /// ### Resuming
 /// Each identify starts a new session, which READY begins, unless [resume]
@@ -66,9 +87,11 @@ enum GatewayConnectionState {
 /// Parse or protocol errors are pushed to [errors]. Both streams remain
 /// open across reconnect cycles and only close when [destroy] is called.
 ///
-/// [shardId] and [shardCount] are forwarded in the IDENTIFY payload so the
-/// server can route traffic correctly once sharding is active. They default
-/// to shard 0-of-1 (i.e. no sharding) and can be ignored until then.
+/// A bot with more than one shard sends its [shardId] and [shardCount] in the
+/// identify: the gateway then gives each shard the spaces whose
+/// `fnv32a(space ID) % shardCount` is its [shardId], and their events. With
+/// one shard, as by default, the client sends neither: the gateway gives a
+/// bot shard 0 of 1, and closes a person's socket that sends them (4000).
 class GatewayClient {
   final RestClient api;
 
@@ -198,7 +221,6 @@ class GatewayClient {
 
   static const Duration _heartbeatInterval = Duration(seconds: 45);
   static const Duration _heartbeatAckTimeout = Duration(seconds: 15);
-  static const Duration _maxReconnectDelay = Duration(milliseconds: 2500);
 
   final ApiRouter router;
   String get _wsHost => router.getCustomApiUrl(protocol: 'ws');
@@ -314,8 +336,9 @@ class GatewayClient {
   }
 
   /// Closes the socket, if one is open, and opens a new one: after a delay
-  /// that grows with each failed attempt, it tries until a socket opens or the
-  /// client is destroyed. Calls while it's trying share that attempt.
+  /// that grows with each failed attempt ([reconnectDelay]), it tries until a
+  /// socket opens or the client is destroyed. Calls while it's trying share
+  /// that attempt.
   Future<void> reconnect() {
     if (_destroyed) return Future.value();
     return _reconnecting ??= _reconnectLoop();
@@ -326,7 +349,7 @@ class GatewayClient {
       while (!_destroyed) {
         _closeSocket();
         _setState(GatewayConnectionState.reconnecting);
-        final delay = _reconnectDelay();
+        final delay = reconnectDelay(_reconnectAttempts);
         _log('reconnecting in ${delay.inMilliseconds}ms '
             '(attempt ${_reconnectAttempts + 1})');
         // A wait destroy() can end early.
@@ -520,6 +543,8 @@ class GatewayClient {
       'token': token,
       if (_lastSeq > 0) 'last_seq': _lastSeq,
       if (resuming) 'session_token': session,
+      // Only to shard: see the class's doc.
+      if (shardCount > 1) ...{'shard_id': shardId, 'num_shards': shardCount},
     };
     final sent = _send({'type': 'identify', 'data': data});
     _log('identify sent (shard=$shardId/$shardCount, seq=$_lastSeq'
@@ -586,12 +611,5 @@ class GatewayClient {
         _errorController.add(DuvetMalformedMessageException(e));
       }
     }
-  }
-
-  Duration _reconnectDelay() {
-    final jitter = Random(token.hashCode).nextInt(500);
-    final base = min(500 * pow(2, _reconnectAttempts).toInt(),
-        _maxReconnectDelay.inMilliseconds);
-    return Duration(milliseconds: base + jitter);
   }
 }

@@ -76,6 +76,8 @@ mixin GatewayEvents {
       onEvent.whereType<UserActivityUpdatedEvent>();
   Stream<TeamInviteCreatedEvent> get onTeamInviteCreate =>
       onEvent.whereType<TeamInviteCreatedEvent>();
+  Stream<StorageTransferUpdatedEvent> get onStorageTransferUpdate =>
+      onEvent.whereType<StorageTransferUpdatedEvent>();
 
   Stream<GuildMemberAddedEvent> get onMemberAdd =>
       onEvent.whereType<GuildMemberAddedEvent>();
@@ -155,6 +157,8 @@ mixin GatewayEvents {
       onEvent.whereType<VoiceJoinedPayloadEvent>();
   Stream<VoiceSessionReplacedPayloadEvent> get onVoiceSessionReplaced =>
       onEvent.whereType<VoiceSessionReplacedPayloadEvent>();
+  Stream<VoiceVideoRefusedPayloadEvent> get onVoiceVideoRefused =>
+      onEvent.whereType<VoiceVideoRefusedPayloadEvent>();
 
   Stream<CallIncomingPayloadEvent> get onCallIncoming =>
       onEvent.whereType<CallIncomingPayloadEvent>();

@@ -5,17 +5,19 @@ them (not deployed yet). Nothing breaks: an older server leaves the new fields
 out, and they read as null.
 
 Then what the desktop app has and this package lacked: the gateway events it
-dropped, resuming a dropped gateway session, the gateway's close reasons and
-`allowed_mentions`. **Breaking change:** the events it dropped join the sealed
-`GatewayEventPayload` (see "Breaking changes"). Resuming is off unless asked
-for, and the new parameters and fields are optional.
+dropped, resuming a dropped gateway session, the gateway's close reasons,
+`allowed_mentions`, a bot's shards in identify, and the desktop app's wait
+between attempts to reconnect. **Breaking change:** the events it dropped join
+the sealed `GatewayEventPayload` (see "Breaking changes"). Resuming is off
+unless asked for, and the new parameters and fields are optional.
 
 ### Breaking changes
 
 - New events join the sealed `GatewayEventPayload`: `MessagePinUpdatedEvent`,
   `DMMessagePinUpdatedEvent`, `RecordingStartedEvent`,
-  `DMRecordingStartedEvent`, `RoomReorderedEvent`, `UserActivityUpdatedEvent`
-  and `TeamInviteCreatedEvent` (see "Added"). A `switch` over it without a
+  `DMRecordingStartedEvent`, `RoomReorderedEvent`, `UserActivityUpdatedEvent`,
+  `TeamInviteCreatedEvent`, `VoiceVideoRefusedPayloadEvent` and
+  `StorageTransferUpdatedEvent` (see "Added"). A `switch` over it without a
   default case has to handle them, and they no longer come as `UnknownEvent`s:
   code that read them by `type` and `rawData` has to match their own types.
 
@@ -101,6 +103,22 @@ for, and the new parameters and fields are optional.
 - `MessageFlag.ephemeral` (`1 << 6`): a bot's response only the person who
   used the interaction sees. `flags` and `interactionMetadata` were parsed
   already, on the gateway's messages and the API's.
+- VOICE_VIDEO_REFUSED (`VoiceVideoRefusedPayloadEvent`, a
+  `VoiceVideoRefusedEvent`: the room, the `kind` of video, camera or screen,
+  the `reason`, and with "limit" the room's `limit`): the gateway refused or
+  stopped the user's camera or screen, and only their session in voice hears
+  it. `GatewayEvents.onVoiceVideoRefused`, and
+  `WebRTCController.onVoiceVideoRefused`.
+- STORAGE_TRANSFER_UPDATE (`StorageTransferUpdatedEvent`, a `StorageTransfer`
+  with its `StorageTransferStatus`): a storage transfer the user started, as
+  it is now, and `GatewayEvents.onStorageTransferUpdate`.
+- READY's `guild_ids` (`GatewayReadyData.guildIds`): the spaces whose
+  SPACE_CREATE follows, which the desktop app counts to know when all came.
+- CONVERSATION_UPDATE's `owner_id` (`ConversationUpdateEvent.ownerId`), which
+  changes when a group's owner leaves; FRIEND_REQUEST_ACCEPT's `status_id`
+  (`FriendRequestAcceptEvent.statusId`), the new friend's status; and
+  USER_UPDATE's `flags` and `badges` (`UserUpdateEvent.flags` and `badges`).
+  Each is null from an API that leaves it out.
 
 ### Fixed
 
@@ -108,6 +126,18 @@ for, and the new parameters and fields are optional.
   sequence number to 0, and counted as hearing from the gateway, so after a
   sleep a refused identify hid how long the sleep lasted from
   `silenceBeforeReady`. It does neither now, as in the desktop app.
+- **A bot's shards sent no shard in identify**, though `GatewayClient`'s doc
+  said they did: each one got every space. With more than one shard, each
+  sends its `shard_id` and `num_shards` now. With one, as by default, neither
+  goes, as before: the gateway gives a bot shard 0 of 1, and closes a
+  person's socket that sends them (4000).
+- **The wait before another socket is the desktop app's:** a second after a
+  drop, doubling with each attempt that fails, up to 30 seconds, plus up to a
+  second at random (`reconnectDelay` in `gateway/client.dart`). It was half a
+  second, doubling up to 2.5 seconds, so a client that couldn't connect tried
+  every 2.5 seconds for good, plus a "jitter" that was the same every time
+  for a token. And from the 61st failure in a row its power of two
+  overflowed: the wait fell to that jitter, under half a second.
 
 ### Tests
 
@@ -138,13 +168,23 @@ for, and the new parameters and fields are optional.
   metadata on the gateway's and the API's messages; close reasons.
 - `test/requests_test.dart`: `allowed_mentions` as JSON and in a form, for
   rooms and conversations.
+- READY's spaces, CONVERSATION_UPDATE's owner, FRIEND_REQUEST_ACCEPT's
+  status, USER_UPDATE's flags and badges, each also left out;
+  VOICE_VIDEO_REFUSED with and without its limit, also through
+  `WebRTCController`; STORAGE_TRANSFER_UPDATE, full and not started.
+- `test/gateway_test.dart`: a bot's two shards identify with theirs, and a
+  person's identify carries no shard; the waits before each attempt, as the
+  schedule gives them (a second up to 30, also far past where a power of two
+  overflows, and at random), and as two refused attempts in a row take them,
+  1 then 2 seconds and more.
 - The fixtures `message_pin_update_event`, `dm_message_pin_update_event`,
   `room_reorder_event` and `team_invite_create_event` (the API's events) and
   `user_activity_update_event` (the gateway's), made by
   `tool/fixtures/generate.sh` from the API's `dev` (c8a65b7) and the gateway's
   (793f502); every other fixture came out unchanged. RECORDING and
   DM_RECORDING use `typing_event` and `dm_typing_event`: the API's `Recording`
-  is `Typing`.
+  is `Typing`. Then `storage_transfer_update_event` (the API's) and
+  `voice_video_refused_event` (the gateway's), the same way.
 
 ## 1.0.1 – 2026-10-23
 

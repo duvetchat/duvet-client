@@ -7,6 +7,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:duvet_client/duvet.dart';
+import 'package:duvet_client/gateway/client.dart' show reconnectDelay;
 import 'package:duvet_client/http/router.dart';
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
@@ -31,8 +32,9 @@ class _FakeGateway {
   /// What to do with the nth upgrade request (from 0).
   _Answer Function(int n) plan = (_) => _Answer.upgrade;
 
-  /// Each upgrade request's token.
+  /// Each upgrade request's token, and when it came.
   final tokens = <String?>[];
+  final at = <DateTime>[];
 
   /// The sockets open now, and the most that were open at once.
   final open = <WebSocket>[];
@@ -59,6 +61,7 @@ class _FakeGateway {
   Future<void> _handle(HttpRequest request) async {
     final n = tokens.length;
     tokens.add(request.uri.queryParameters['token']);
+    at.add(DateTime.now());
     switch (plan(n)) {
       case _Answer.refuse:
         request.response.statusCode = HttpStatus.serviceUnavailable;
@@ -140,7 +143,8 @@ void main() {
     await g.manager.connectAll();
     expect((await ready).user.id, 'u1');
     expect(gateway.tokens, [_token]);
-    expect(gateway.identified.single['token'], _token);
+    // A person's: no shard, which the gateway would refuse (4000).
+    expect(gateway.identified.single, {'token': _token});
     expect(g.states, [
       GatewayConnectionState.connecting,
       GatewayConnectionState.connected,
@@ -195,6 +199,59 @@ void main() {
     // The refusals' errors carry the URL, but not the token in it.
     expect(g.logs, contains(contains('was not upgraded to websocket')));
     expect(g.logs.join('\n'), isNot(contains(_token)));
+
+    // As the desktop app waits: a second, then two, each plus up to one.
+    final waits = [
+      for (final m in g.logs
+          .map(RegExp(r'reconnecting in (\d+)ms \(attempt (\d+)\)').firstMatch)
+          .nonNulls)
+        (int.parse(m[2]!), int.parse(m[1]!)),
+    ];
+    expect(waits.map((w) => w.$1), [1, 2]);
+    expect(waits[0].$2, inInclusiveRange(1000, 1999));
+    expect(waits[1].$2, inInclusiveRange(2000, 2999));
+    expect(gateway.at[1].difference(gateway.at[0]),
+        greaterThanOrEqualTo(const Duration(seconds: 1)));
+    expect(gateway.at[2].difference(gateway.at[1]),
+        greaterThanOrEqualTo(const Duration(seconds: 2)));
+  });
+
+  test('the wait before each attempt grows as the desktop app\'s, to 30 s', () {
+    final random = Random(7);
+    for (final (failed, seconds) in [
+      (0, 1),
+      (1, 2),
+      (2, 4),
+      (3, 8),
+      (4, 16),
+      (5, 30),
+      (6, 30),
+      // Far past the cap, where a power of two would overflow.
+      (100, 30),
+    ]) {
+      final wait = reconnectDelay(failed, random);
+      expect(wait, greaterThanOrEqualTo(Duration(seconds: seconds)),
+          reason: '$failed');
+      expect(wait, lessThan(Duration(seconds: seconds + 1)), reason: '$failed');
+    }
+    // Up to a second at random, not the same for every client.
+    final jitters = {
+      for (var i = 0; i < 20; i++)
+        reconnectDelay(0, random) - const Duration(seconds: 1),
+    };
+    expect(jitters.length, greaterThan(1));
+  });
+
+  test('a bot\'s shards send theirs in identify', () async {
+    final g = _manager(gateway);
+    addTearDown(g.manager.destroy);
+
+    await g.manager.connectAll(shardCount: 2);
+    await gateway.identifies(2);
+    expect(gateway.identified, [
+      {'token': _token, 'shard_id': 0, 'num_shards': 2},
+      {'token': _token, 'shard_id': 1, 'num_shards': 2},
+    ]);
   });
 
   test('an attempt that hangs is dropped after connectTimeout', () async {
@@ -246,8 +303,8 @@ void main() {
     await gateway.open.single.close();
     await reconnecting;
     g.manager.destroy();
-    // Longer than the wait before the next attempt.
-    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    // Longer than the wait before the next attempt (2 s at most).
+    await Future<void>.delayed(const Duration(milliseconds: 2500));
 
     expect(gateway.tokens, hasLength(1));
     expect(gateway.open, isEmpty);

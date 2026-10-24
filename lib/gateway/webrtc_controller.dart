@@ -217,6 +217,11 @@ class WebRTCController {
   Stream<VoiceSessionReplacedPayloadEvent> get onVoiceSessionReplaced =>
       _manager.onVoiceSessionReplaced;
 
+  /// The gateway refused or stopped this session's camera or screen: turn it
+  /// off, and say why.
+  Stream<VoiceVideoRefusedPayloadEvent> get onVoiceVideoRefused =>
+      _manager.onVoiceVideoRefused;
+
   Stream<CallIncomingPayloadEvent> get onCallIncoming =>
       _manager.onCallIncoming;
   Stream<CallAcceptedEvent> get onCallAccepted => _manager.onCallAccept;

@@ -1,0 +1,21 @@
+{
+  "id": "10020202-0202-7002-8002-020202020202",
+  "owner_id": "10020202-0202-7002-8002-020202020202",
+  "started_by": "10020202-0202-7002-8002-020202020202",
+  "source_bucket_id": null,
+  "target_bucket_id": null,
+  "keep_source": false,
+  "same_bucket": false,
+  "status": 2,
+  "error": null,
+  "total_files": 2,
+  "total_bytes": 2,
+  "moved_files": 2,
+  "moved_bytes": 2,
+  "skipped_files": 2,
+  "failed_files": 2,
+  "created_at": "2026-10-22T10:00:00.123456789Z",
+  "started_at": null,
+  "finished_at": null,
+  "updated_at": "2026-10-22T10:00:00.123456789Z"
+}

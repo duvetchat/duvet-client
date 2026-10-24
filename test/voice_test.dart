@@ -395,6 +395,19 @@ void main() {
           greaterThanOrEqualTo(const Duration(milliseconds: 300)));
     });
 
+    test('passes on the camera or screen the gateway refused', () async {
+      final ready = manager.ready;
+      await manager.connectAll();
+      await ready;
+
+      final refused = rtc.onVoiceVideoRefused.first;
+      gateway.push('VOICE_VIDEO_REFUSED',
+          {'room_id': 'r1', 'kind': 'camera', 'reason': 'limit', 'limit': 8});
+      final e = await refused;
+      expect((e.data.roomId, e.data.kind, e.data.reason, e.data.limit),
+          ('r1', 'camera', 'limit', 8));
+    });
+
     test('a new socket has a new number, and gets READY', () async {
       final ready = manager.ready;
       await manager.connectAll();

@@ -70,6 +70,9 @@ class GatewayEnvelope {
       case 'VOICE_SESSION_REPLACED':
         return VoiceSessionReplacedPayloadEvent(
             VoiceSessionReplacedEvent.fromJson(d));
+      case 'VOICE_VIDEO_REFUSED':
+        return VoiceVideoRefusedPayloadEvent(
+            VoiceVideoRefusedEvent.fromJson(d));
       case 'WEBRTC_ICE_CANDIDATE':
         return WebRTCIceCandidateEvent(IceCandidateEvent.fromJson(d));
       case 'WEBRTC_RENEGOTIATE':
@@ -160,6 +163,8 @@ class GatewayEnvelope {
         return CallEndedPayloadEvent(CallEndedEvent.fromJson(d));
       case 'TEAM_INVITE_CREATE':
         return TeamInviteCreatedEvent(TeamInvite.fromJson(d));
+      case 'STORAGE_TRANSFER_UPDATE':
+        return StorageTransferUpdatedEvent(StorageTransfer.fromJson(d));
       default:
         return UnknownEvent(type, d);
     }

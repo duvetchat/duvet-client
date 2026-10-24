@@ -382,6 +382,8 @@ void main() {
       'ROOM_REORDER': ('room_reorder_event', []),
       'USER_ACTIVITY_UPDATE': ('user_activity_update_event', []),
       'TEAM_INVITE_CREATE': ('team_invite_create_event', []),
+      'VOICE_VIDEO_REFUSED': ('voice_video_refused_event', []),
+      'STORAGE_TRANSFER_UPDATE': ('storage_transfer_update_event', []),
     };
 
     // Handled by the client, but neither the API nor the gateway sends them.
@@ -436,6 +438,14 @@ void main() {
         'TEAM_INVITE_CREATE': (
           'team_invite_create_event',
           TeamInviteCreatedEvent
+        ),
+        'VOICE_VIDEO_REFUSED': (
+          'voice_video_refused_event',
+          VoiceVideoRefusedPayloadEvent
+        ),
+        'STORAGE_TRANSFER_UPDATE': (
+          'storage_transfer_update_event',
+          StorageTransferUpdatedEvent
         ),
       };
       for (final MapEntry(key: type, value: (name, event)) in added.entries) {
@@ -613,6 +623,19 @@ void main() {
       }
     });
 
+    test('READY: the spaces whose SPACE_CREATE follows', () {
+      for (final name in ['ready_event', 'bot_ready_event']) {
+        final full = dispatch('READY', _load(name, 'full')) as ReadyEvent;
+        expect(full.data.guildIds, ['s-string'], reason: name);
+        final none = dispatch('READY', _load(name, 'nulls')) as ReadyEvent;
+        expect(none.data.guildIds, isEmpty, reason: name);
+      }
+      final older =
+          dispatch('READY', _without(_load('ready_event', 'full'), 'guild_ids'))
+              as ReadyEvent;
+      expect(older.data.guildIds, isEmpty);
+    });
+
     test('READY: the status the user chose; none from an older gateway', () {
       for (final json in _variants('ready_event').values) {
         final e = dispatch('READY', json) as ReadyEvent;
@@ -631,6 +654,88 @@ void main() {
       final older =
           dispatch('USER_UPDATE', _without(json, 'custom')) as UserUpdatedEvent;
       expect(older.data.custom, isNull);
+    });
+
+    test('USER_UPDATE carries the flags and badges; an older API not', () {
+      final json = _load('user_update_event', 'full');
+      final e = dispatch('USER_UPDATE', json) as UserUpdatedEvent;
+      expect((e.data.flags, e.data.badges), (2, 2));
+      final older =
+          dispatch('USER_UPDATE', _without(_without(json, 'flags'), 'badges'))
+              as UserUpdatedEvent;
+      expect((older.data.flags, older.data.badges), (null, null));
+    });
+
+    test('CONVERSATION_UPDATE: the name and the owner', () {
+      final json = _load('conversation_update_event', 'full');
+      final e =
+          dispatch('CONVERSATION_UPDATE', json) as ConversationUpdatedEvent;
+      expect((e.data.id, e.data.name, e.data.ownerId),
+          (json['id'], json['name'], json['owner_id']));
+      final older = dispatch('CONVERSATION_UPDATE', _without(json, 'owner_id'))
+          as ConversationUpdatedEvent;
+      expect(older.data.ownerId, isNull);
+    });
+
+    test('FRIEND_REQUEST_ACCEPT: the new friend\'s status', () {
+      final json = _load('friend_request_accept_event', 'full');
+      final e =
+          dispatch('FRIEND_REQUEST_ACCEPT', json) as FriendRequestAcceptedEvent;
+      expect(e.data.statusId, UserStatus.dnd);
+      final older =
+          dispatch('FRIEND_REQUEST_ACCEPT', _without(json, 'status_id'))
+              as FriendRequestAcceptedEvent;
+      expect(older.data.statusId, isNull);
+    });
+
+    test('STORAGE_TRANSFER_UPDATE: the transfer as it is now', () {
+      final at = DateTime.utc(2026, 10, 22, 10, 0, 0, 123, 456);
+      final full = (dispatch('STORAGE_TRANSFER_UPDATE',
+                  _load('storage_transfer_update_event', 'full'))
+              as StorageTransferUpdatedEvent)
+          .data;
+      expect(full.status, StorageTransferStatus.done);
+      expect((full.keepSource, full.sameBucket, full.error),
+          (true, true, 's-string'));
+      expect((
+        full.totalFiles,
+        full.totalBytes,
+        full.movedFiles,
+        full.movedBytes,
+        full.skippedFiles,
+        full.failedFiles,
+      ), (
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ));
+      expect((full.createdAt, full.startedAt, full.finishedAt, full.updatedAt),
+          (at, at, at, at));
+      expect(full.sourceBucketId, isNotNull);
+      expect(full.targetBucketId, isNotNull);
+
+      // Null buckets, the default storage, and not started yet.
+      final queued = (dispatch('STORAGE_TRANSFER_UPDATE',
+                  _load('storage_transfer_update_event', 'nulls'))
+              as StorageTransferUpdatedEvent)
+          .data;
+      expect((queued.sourceBucketId, queued.targetBucketId), (null, null));
+      expect((queued.error, queued.startedAt, queued.finishedAt),
+          (null, null, null));
+      expect((
+        StorageTransferStatus.queued,
+        StorageTransferStatus.moving,
+        StorageTransferStatus.failed,
+        StorageTransferStatus.cancelled,
+      ), (
+        0,
+        1,
+        3,
+        4
+      ));
     });
 
     test('SPACE_CREATE: rooms and roles are maps by ID', () {
@@ -865,6 +970,24 @@ void main() {
       final moved = dispatch('VOICE_SESSION_REPLACED', _without(json, 'reason'))
           as VoiceSessionReplacedPayloadEvent;
       expect((moved.data.roomId, moved.data.reason), ('s-string', null));
+    });
+
+    test('VOICE_VIDEO_REFUSED: which video, why, and the room\'s limit', () {
+      // As webrtc.go writes it when the room has its cameras on already.
+      final limit = dispatch('VOICE_VIDEO_REFUSED', {
+        'room_id': 'r1',
+        'kind': 'camera',
+        'reason': 'limit',
+        'limit': 8,
+      }) as VoiceVideoRefusedPayloadEvent;
+      expect((limit.data.roomId, limit.data.kind, limit.data.reason),
+          ('r1', 'camera', 'limit'));
+      expect(limit.data.limit, 8);
+      // omitempty: no limit for another reason.
+      final screen = dispatch('VOICE_VIDEO_REFUSED',
+              _load('voice_video_refused_event', 'nulls'))
+          as VoiceVideoRefusedPayloadEvent;
+      expect(screen.data.limit, isNull);
     });
 
     test('calls: incoming, accepted, declined, ended', () {
