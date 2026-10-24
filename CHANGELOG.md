@@ -1,3 +1,197 @@
+## Unreleased
+
+Bios and the do-not-disturb status, for the API and gateway versions that bring
+them (not deployed yet). Nothing breaks: an older server leaves the new fields
+out, and they read as null.
+
+### Added
+
+- **Bios:** `updateUser(custom:)` sets the bio. The API trims it and takes
+  `maxBioLength` (190) characters at most, counted as code points (`runes`),
+  so an emoji is one. An empty one clears it, and left out it stays.
+  `UserUpdateEvent.custom` is USER_UPDATE's bio, null when an older API leaves
+  it out.
+- **Status:** `setStatus(UserStatus.online | UserStatus.dnd)`
+  (`PUT /api/users/@me/status`) chooses the status others see while the user
+  is connected, and answers the user. Offline isn't a choice (an
+  `ArgumentError`), and bots get a 403. The status the user chose is
+  `UserMeResult.status`, and READY's `GatewayUser.status`. Both are null for a
+  bot. USER_STATUS_UPDATE and SPACE_CREATE's `member_statuses` already parsed
+  2 as `UserStatus.dnd`.
+
+### Tests
+
+- What `updateUser` and `setStatus` send, a bot's refusal, and the new fields,
+  present and left out.
+- The fixtures `user_update_event`, `user_me`, `ready_event` and
+  `bot_ready_event` come from the unmerged branches that add these fields: the
+  API's `space-delete-bio` (the bio) and `dnd-status` (the status), and the
+  gateway's `dnd-status`. Every other fixture they make is unchanged.
+
+## 1.0.1 – 2026-10-23
+
+What the Duvet mobile app needs, a gateway connection that recovers from
+network changes, and voice and call signalling as the gateway speaks it.
+**Breaking changes**: `createSpace` answers the new space, and the voice and
+call API changed (it never matched the gateway, so nothing could have used it).
+
+### Breaking changes
+
+- **`createSpace` answers a `CreatedSpace`** (was `Future<void>`): the space
+  and the text and voice rooms the API makes with it, so an app can show it
+  before the gateway's SPACE_CREATE; its `id` is the space's. Code that typed
+  the result `Future<void>` has to change.
+- `MentionCreateEvent`'s constructor takes `messageId` and `authorId`
+  (required: the server always sends them).
+- A new event, `DMMentionCreatedEvent`, joins the sealed
+  `GatewayEventPayload`: a `switch` over it without a default case has to
+  handle it.
+- **Voice and calls, as the gateway speaks them** (`WebRTCController` sent
+  `join_voice`, `leave_voice`, `call_accept` and other names the gateway
+  ignores, and read its events' data wrongly):
+  - `WebRTCController`'s sends are now `joinVoice`, `leaveVoice`,
+    `syncVoice` (the whole state, every field required: the gateway turns off
+    what a VOICE_SYNC leaves out), `sendIceCandidate`, `sendAnswer`,
+    `sendRenegotiateOffer`, `initiateCall`, `acceptCall`, `declineCall`,
+    `cancelCall` and `leaveCall`; each answers whether the message went out.
+    `joinVoiceRoom`, `leaveVoiceRoom`, `updateVoiceState`, `sendRenegotiate`,
+    `sendRenegotiateAnswer` and `activeRoomId` are gone.
+  - `WebRTCEvent` is gone. WEBRTC_ICE_CANDIDATE's data is an
+    `IceCandidateEvent` (its `candidate` an `IceCandidateInit`, parsed from the
+    JSON string the gateway sends), WEBRTC_RENEGOTIATE's a
+    `RenegotiateOfferEvent` (its `offer`), WEBRTC_RENEGOTIATE_ANSWER's a
+    `RenegotiateAnswerEvent` (its `answer`).
+  - `VoiceStateEvent`'s and `GatewayVoiceState`'s `muted`, `deafened` and
+    `screenSharing` are `bool` (were `bool?`: the gateway always sends them).
+  - `WebRTCController.participantsIn` no longer throws for an empty room.
+
+### Fixed
+
+- **Gateway: stuck after a network change.** The client waited for
+  web_socket_client's `Connected`, which it never sends after a retry of its
+  own (it sends `Reconnected`), with no timeout: the shard went silent, without
+  heartbeats or retries. And a dropped socket could stay open next to the new
+  one, as web_socket_client kept reconnecting it. The gateway now connects
+  through dart:io's `WebSocket`:
+  - one socket at a time, closed before the next one opens;
+  - each attempt has `connectTimeout` (15 s) to open;
+  - a socket that drops or fails is followed by another, with the same
+    backoff, until `destroy()`; `reconnect()` completes once one is open;
+  - `connectAll()` completes once every shard has a socket open, trying again
+    while one can't (it could wait forever before), and throws a `StateError`
+    if the manager is destroyed first.
+- **Gateway: no socket after `destroy()`**, also when it comes during the wait
+  between attempts or while a socket opens. `destroy()` closes every stream
+  (`errors` stayed open), and `waitForConnection()` answers false once
+  destroyed.
+- **The token is no longer logged.** The gateway's URL carries it in its query:
+  the log names the host and path only, and a failed handshake's error, which
+  holds the URL, has the token masked (`***`) before it's logged or thrown.
+  The example doesn't print it either.
+- **REST requests time out.** One that makes no progress for `requestTimeout`
+  (20 s) fails with a `TimeoutException` and its connection is closed; the
+  session refresh too. Connecting, each piece of the body sent and of the
+  answer received count as progress, so an upload that keeps moving goes
+  through however long it takes.
+- A file sent from a Windows path written with `/` (`C:\tmp/cat.png`) was
+  named with its folders.
+- MENTION_CREATE's `message_id` and `author_id` were dropped, and
+  DM_MENTION_CREATE was an `UnknownEvent`.
+
+### Added
+
+- Voice and calls:
+  - `VoiceStates`: who's in voice in every room and call, from READY's calls,
+    each SPACE_CREATE's voice rooms and every VOICE_STATE_UPDATE, kept in
+    version order (an update older than one applied is dropped, as the
+    desktop app drops it). `WebRTCController.voiceStates` keeps one, and
+    `onVoiceStateUpdate` passes on only the updates it applied.
+  - `camera` and `version` on `VoiceStateEvent`, `GatewayVoiceState` and
+    `CallVoiceState`.
+  - READY's `ice_servers` as `GatewayReadyData.iceServers` (`IceServer`:
+    `urls`, `username`, `credential`, and `toJson()` as a peer connection's
+    configuration takes it): the STUN server, and the TURN relay with the
+    user's own credentials.
+  - VOICE_SESSION_REPLACED (`VoiceSessionReplacedPayloadEvent`, a
+    `VoiceSessionReplacedEvent` with `roomId` and `reason`), and
+    `GatewayEvents.onVoiceSessionReplaced`: another device took the voice, or
+    the user lost access to the room.
+  - `SessionDescription.toJson()` and `IceCandidateInit`.
+  - `GatewayClient.connection` and `GatewayManager.connection`: the number of
+    the open socket (each one gets a READY: the client doesn't resume), or
+    null while none is open. `silenceBeforeReady`: how long the gateway was
+    silent (no event, no heartbeat ack) before the last READY, taken as READY
+    comes.
+  - `GatewayClient.sendMessage` and `GatewayManager.sendMessage` answer
+    whether the message went out (they answered nothing).
+- `GatewayConnectionState` (`connecting`, `connected`, `reconnecting`,
+  `disconnected`): `GatewayManager.onConnectionState`, and
+  `GatewayClient.onConnectionState` and `connectionState`. READY comes again
+  after `reconnecting`: the client doesn't resume sessions.
+- `GatewaySpaceCreatePayload.memberStatuses`: SPACE_CREATE's
+  `member_statuses`, the status of each member who isn't offline, by user ID.
+- `DMMentionCreatedEvent` (DM_MENTION_CREATE, a `DMMentionCreateEvent` with
+  `messageId`, `conversationId` and `authorId`) and
+  `GatewayEvents.onDMMentionCreate`. `MentionCreateEvent` has `messageId` and
+  `authorId`.
+- `deleteSpace(spaceId)`: `DELETE /api/spaces/{id}`, its owner's (403 for
+  anyone else, 404 once it's gone). An API without the route answers a
+  plain-text 404.
+- `getConversationMessageThread`: a conversation message's reply thread, as
+  `getMessageThread` gives a room's.
+- `count` on `getMessages` and `getDirectMessages` (1 to 100, 100 by default),
+  e.g. to fetch a room's newest message alone.
+- `format` on `sendVoiceNote` and `sendDMVoiceNote`: `webm` (the default, as
+  the desktop app records), `ogg` (Ogg/Opus) or `m4a` (AAC in MP4, what Android
+  records before version 10); anything else is an `ArgumentError`. Any `.m4a`
+  file goes as `audio/mp4`.
+- Upload progress and cancel: `onProgress(sent, total)` and `abortTrigger` on
+  `sendMessage` and `sendDirectMessage`. Completing the trigger aborts the
+  request, which fails with `package:http`'s `RequestAbortedException`.
+- `useComponent`, `useCommand` and `submitModal` answer an `InteractionReply`:
+  the type of the bot's first response and, when the bot opened a modal
+  (`isModal`), the modal and its application. `submitModal` sends a modal's
+  answers (interaction type 5). `sendComponentInteraction` and
+  `sendCommandInteraction` still answer the type alone.
+  `InteractionCallbackType` names the types.
+- `RestClient(requestTimeout:)` (`defaultRequestTimeout`),
+  `request(timeout:, onProgress:, abortTrigger:)`, and `connectTimeout` on
+  `GatewayManager` and `GatewayClient` (`defaultConnectTimeout`).
+- `ApiRouter(secure: false)` reaches the API and the gateway over http and ws,
+  e.g. a local server.
+- Dependencies: `http` ^1.5.0, for aborting requests. `web_socket_client` is
+  gone.
+
+### Tests
+
+- `test/voice_test.dart`: `VoiceStates` in version order (late updates, a
+  leave then a late join, READY's calls, SPACE_CREATE that doesn't bring back
+  older states), and, against a fake gateway on 127.0.0.1, every voice and
+  call message as `payload.go` reads it, the voice states and fresh updates,
+  `silenceBeforeReady` (bound to READY, whatever comes after it), and a new
+  socket's number. `test/models_test.dart`:
+  READY's ICE servers, the voice events' new fields, the ICE candidate as a
+  JSON string, VOICE_SESSION_REPLACED with and without a reason.
+- `voice_session_replaced_event` fixtures, from the gateway
+  (`tool/fixtures/gateway_fixtures_test.go.tmpl`); the other gateway fixtures
+  are unchanged against the gateway's `dev` (19e7e1d).
+- `test/gateway_test.dart`, against a fake gateway on 127.0.0.1: identifying
+  with the token and hearing READY; a dropped socket replaced by one new
+  socket; the first connection trying again past refusals; an attempt that
+  hangs dropped after `connectTimeout`; no socket after `destroy()`; the token
+  kept out of the logs and of a failed handshake's error.
+- `test/timeouts_test.dart`, against servers on 127.0.0.1: a request and a
+  session refresh with no answer time out, and the request's connection is
+  closed; a cancelled upload stops mid-way; an upload to a slow server reports
+  its progress and finishes; the timeout counts from the last progress.
+- `test/requests_test.dart` and `test/models_test.dart`: what's above, and that
+  a conversation's thread parses.
+- The fixtures come from the current api and gateway, with
+  `create_space_result` and `dm_mention_create_event` added. The generator now
+  leaves a struct type inside itself empty (a component's components): filling
+  every level again had grown the message fixtures to some 49,000 lines each.
+  They're under 300 lines now; only those nested fields are left out.
+
 ## 1.0.0 – 2026-10-22
 
 The REST client now follows the API as the desktop app

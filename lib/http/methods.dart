@@ -6,13 +6,26 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' show MediaType;
 import 'package:duvet_client/http/ack.dart';
 import 'package:duvet_client/http/router.dart';
+import 'package:duvet_client/http/send.dart';
 import 'package:duvet_client/errors.dart';
 import 'package:duvet_client/models/types.dart';
 
-const _voiceNoteName = 'voice-note.webm';
+// A voice note goes as the file voice-note.<format>, with the media type of its
+// format: WebM/Opus as the desktop app records it, Ogg/Opus, or AAC in MP4.
+const _voiceNote = 'voice-note';
+const _voiceNoteTypes = {
+  'webm': 'audio/webm',
+  'ogg': 'audio/ogg',
+  'm4a': 'audio/mp4',
+};
 
 /// How many members a page of [RestMethods.getSpaceMembers] has.
 const membersPageSize = 50;
+
+/// How long a bio ([RestMethods.updateUser]'s `custom`) may be once trimmed,
+/// in characters as the API counts them: Unicode code points ([String.runes]),
+/// so an emoji such as 😀 is one where [String.length] counts two.
+const maxBioLength = 190;
 
 /// A file part of a multipart request.
 typedef FilePart = ({String field, List<int> bytes, String filename});
@@ -31,6 +44,7 @@ const _mediaTypes = {
   'webm': 'video/webm',
   'mov': 'video/quicktime',
   'mp3': 'audio/mpeg',
+  'm4a': 'audio/mp4',
   'ogg': 'audio/ogg',
   'wav': 'audio/wav',
   'flac': 'audio/flac',
@@ -43,8 +57,18 @@ const _mediaTypes = {
 MediaType _mediaTypeOf(String filename) {
   final dot = filename.lastIndexOf('.');
   final ext = dot < 0 ? '' : filename.substring(dot + 1).toLowerCase();
-  return MediaType.parse(_mediaTypes[ext] ?? 'application/octet-stream');
+  // A voice note's WebM is audio, where any other WebM is a video.
+  final voiceNote = dot >= 0 && filename.substring(0, dot) == _voiceNote
+      ? _voiceNoteTypes[ext]
+      : null;
+  return MediaType.parse(
+      voiceNote ?? _mediaTypes[ext] ?? 'application/octet-stream');
 }
+
+// A file's name without its folders: on Windows a path may separate them with
+// either slash.
+String _basename(String path) =>
+    path.split(Platform.isWindows ? RegExp(r'[/\\]') : RegExp('/')).last;
 
 // ---------------------------------------------------------------------------
 // Api responses
@@ -58,6 +82,11 @@ mixin RestMethods {
   /// Renews the session's tokens after a request got a 401, and answers
   /// whether it did: the request is then sent once more.
   Future<bool> renewSession() async => false;
+
+  /// How long a request may go without progress before it fails with a
+  /// [TimeoutException] ([defaultRequestTimeout]: connecting, sending its body
+  /// and receiving the answer count as progress).
+  Duration get requestTimeout => defaultRequestTimeout;
 
   // -------------------------------------------------------------------------
   // Auth (logging in and out is [RestClient]'s, which keeps the tokens)
@@ -119,12 +148,21 @@ mixin RestMethods {
   // Spaces
   // -------------------------------------------------------------------------
 
-  Future<void> createSpace(String name, {String? description}) async {
-    await request('POST', '/api/spaces', 'create space', json: {
+  /// Makes a space, with a text and a voice room; answers it with its rooms.
+  Future<CreatedSpace> createSpace(String name, {String? description}) async {
+    final response =
+        await request('POST', '/api/spaces', 'create space', json: {
       'name': name,
       if (description != null && description.isNotEmpty)
         'description': description,
     });
+    return CreatedSpace.fromJson(_decodeMap(response));
+  }
+
+  /// Deletes the space, which only its owner may do (anyone else gets a 403;
+  /// a space already gone, a 404). Its members get SPACE_DELETE.
+  Future<void> deleteSpace(String spaceId) async {
+    await request('DELETE', '/api/spaces/$spaceId', 'delete space');
   }
 
   /// A page of the space's members, by their highest role and then their ID;
@@ -331,11 +369,13 @@ mixin RestMethods {
   // Messages
   // -------------------------------------------------------------------------
 
+  /// A page of the room's messages before [before] (the newest without it),
+  /// newest first: [count] of them, 1 to 100.
   Future<List<GatewayMessage>> getMessages(String roomId,
-      {String? before}) async {
+      {String? before, int count = 100}) async {
     final response = await request(
         'GET', '/api/rooms/$roomId/messages', 'get messages',
-        query: {'count': 100, 'before': before});
+        query: {'count': count, 'before': before});
     return _decodeList(response, GatewayMessage.fromJson);
   }
 
@@ -388,6 +428,10 @@ mixin RestMethods {
 
   /// Sends a message to the room. With [files], it goes as a multipart form,
   /// which carries no [embeds] or sticker.
+  ///
+  /// [onProgress] gets the bytes of the request sent so far, and their total.
+  /// Completing [abortTrigger] cancels the request: it then fails with an
+  /// [http.RequestAbortedException].
   Future<GatewayMessage> sendMessage(
     String roomId,
     String content, {
@@ -396,21 +440,27 @@ mixin RestMethods {
     List<File>? files,
     List<Embed>? embeds,
     String? stickerAttachmentId,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   }) async {
     final response = await _sendMessage('/api/rooms/$roomId/messages', content,
         nonce: nonce,
         messageReference: messageReference,
         files: files,
         embeds: embeds,
-        stickerAttachmentId: stickerAttachmentId);
+        stickerAttachmentId: stickerAttachmentId,
+        onProgress: onProgress,
+        abortTrigger: abortTrigger);
     return GatewayMessage.fromJson(_decodeMap(response));
   }
 
-  /// Sends a voice message to the room: [audio] is a WebM recording.
+  /// Sends a voice message to the room: [audio] is a recording in [format],
+  /// `webm` (WebM/Opus, as the desktop app records), `ogg` (Ogg/Opus) or `m4a`
+  /// (AAC in MP4).
   Future<GatewayMessage> sendVoiceNote(String roomId, List<int> audio,
-      {String? nonce}) async {
+      {String? nonce, String format = 'webm'}) async {
     final response = await _sendVoiceNote('/api/rooms/$roomId/messages', audio,
-        nonce: nonce);
+        nonce: nonce, format: format);
     return GatewayMessage.fromJson(_decodeMap(response));
   }
 
@@ -731,41 +781,78 @@ mixin RestMethods {
   // -------------------------------------------------------------------------
 
   /// Uses a component of a bot's message in a room. The API waits up to 3
-  /// seconds for the bot's first response and answers its type; without one,
-  /// 504.
-  Future<int> sendComponentInteraction(
-      String roomId, String messageId, ComponentUse data) async {
-    final response = await request(
-        'POST', '/api/interactions', 'send component interaction',
-        json: {
-          'type': 3,
-          'room_id': roomId,
-          'message_id': messageId,
-          'data': data.toJson(),
-        });
-    return _decodeMap(response)['type'] as int;
-  }
+  /// seconds for the bot's first response and answers it: its type, and the
+  /// modal when the bot opened one ([InteractionReply.isModal]); without a
+  /// response, 504.
+  Future<InteractionReply> useComponent(
+          String roomId, String messageId, ComponentUse data) =>
+      _component('use component', roomId, messageId, data);
 
-  /// Uses an application's command in a room, and answers the type of the
-  /// bot's first response, as a component's.
+  /// [useComponent], answering only the type of the bot's first response.
+  Future<int> sendComponentInteraction(
+          String roomId, String messageId, ComponentUse data) =>
+      _component('send component interaction', roomId, messageId, data)
+          .then((reply) => reply.type);
+
+  /// Uses an application's command in a room, and answers the bot's first
+  /// response, as [useComponent] does.
+  Future<InteractionReply> useCommand(
+          String roomId, String applicationId, CommandUse data) =>
+      _command('use command', roomId, applicationId, data);
+
+  /// [useCommand], answering only the type of the bot's first response.
   Future<int> sendCommandInteraction(
-      String roomId, String applicationId, CommandUse data) async {
+          String roomId, String applicationId, CommandUse data) =>
+      _command('send command interaction', roomId, applicationId, data)
+          .then((reply) => reply.type);
+
+  /// Submits a modal the application's bot opened in a room: [customId] is the
+  /// modal's, and [components] its labels with what was entered in their
+  /// inputs, as the API takes them. [messageId] is the message whose component
+  /// opened it, if one did. A modal is submitted once; answers the bot's first
+  /// response, as [useComponent] does.
+  Future<InteractionReply> submitModal(String roomId, String applicationId,
+          String customId, List<Map<String, dynamic>> components,
+          {String? messageId}) =>
+      _interact('submit modal', {
+        'type': 5,
+        'room_id': roomId,
+        'application_id': applicationId,
+        if (messageId != null) 'message_id': messageId,
+        'data': {'custom_id': customId, 'components': components},
+      });
+
+  Future<InteractionReply> _component(
+          String action, String roomId, String messageId, ComponentUse data) =>
+      _interact(action, {
+        'type': 3,
+        'room_id': roomId,
+        'message_id': messageId,
+        'data': data.toJson(),
+      });
+
+  Future<InteractionReply> _command(String action, String roomId,
+      String applicationId, CommandUse data) async {
     try {
-      final response = await request(
-          'POST', '/api/interactions', 'send command interaction',
-          json: {
-            'type': 2,
-            'room_id': roomId,
-            'application_id': applicationId,
-            'data': data.toJson(),
-          });
-      return _decodeMap(response)['type'] as int;
+      return await _interact(action, {
+        'type': 2,
+        'room_id': roomId,
+        'application_id': applicationId,
+        'data': data.toJson(),
+      });
     } catch (_) {
       // The command may have changed or gone: the next use asks for the
       // lists again.
       _spaceCommands.clear();
       rethrow;
     }
+  }
+
+  Future<InteractionReply> _interact(
+      String action, Map<String, dynamic> json) async {
+    final response =
+        await request('POST', '/api/interactions', action, json: json);
+    return InteractionReply.fromJson(_decodeMap(response));
   }
 
   /// The space's commands, kept for a few minutes, or until
@@ -905,13 +992,15 @@ mixin RestMethods {
         'leave conversation');
   }
 
+  /// A page of the conversation's messages before [before] (the newest
+  /// without it), newest first: [count] of them, 1 to 100.
   Future<List<DirectMessage>> getDirectMessages(String conversationId,
-      {String? before}) async {
+      {String? before, int count = 100}) async {
     final response = await request(
         'GET',
         '/api/users/@me/conversations/$conversationId/messages',
         'get direct messages',
-        query: {'count': 100, 'before': before});
+        query: {'count': count, 'before': before});
     return _decodeList(response, DirectMessage.fromJson);
   }
 
@@ -922,6 +1011,17 @@ mixin RestMethods {
         '/api/users/@me/conversations/$conversationId/messages/$messageId',
         'get direct message by ID');
     return DirectMessage.fromJson(_decodeMap(response));
+  }
+
+  /// A conversation message's reply thread, oldest first, as a room's thread
+  /// is.
+  Future<List<DirectMessage>> getConversationMessageThread(
+      String conversationId, String messageId) async {
+    final response = await request(
+        'GET',
+        '/api/users/@me/conversations/$conversationId/messages/$messageId/thread',
+        'get conversation message thread');
+    return _decodeList(response, DirectMessage.fromJson);
   }
 
   /// A conversation's pinned messages, the last pinned first.
@@ -973,7 +1073,8 @@ mixin RestMethods {
   }
 
   /// Sends a message to the conversation. With [files], it goes as a
-  /// multipart form, which carries no [embeds] or sticker.
+  /// multipart form, which carries no [embeds] or sticker. [onProgress] and
+  /// [abortTrigger] work as [sendMessage]'s.
   Future<DirectMessage> sendDirectMessage(
     String conversationId,
     String content, {
@@ -982,6 +1083,8 @@ mixin RestMethods {
     List<File>? files,
     List<Embed>? embeds,
     String? stickerAttachmentId,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   }) async {
     final response = await _sendMessage(
         '/api/users/@me/conversations/$conversationId/messages', content,
@@ -989,16 +1092,19 @@ mixin RestMethods {
         messageReference: messageReference,
         files: files,
         embeds: embeds,
-        stickerAttachmentId: stickerAttachmentId);
+        stickerAttachmentId: stickerAttachmentId,
+        onProgress: onProgress,
+        abortTrigger: abortTrigger);
     return DirectMessage.fromJson(_decodeMap(response));
   }
 
-  /// Sends a voice message to the conversation: [audio] is a WebM recording.
+  /// Sends a voice message to the conversation: [audio] is a recording in
+  /// [format], as [sendVoiceNote] takes it.
   Future<DirectMessage> sendDMVoiceNote(String conversationId, List<int> audio,
-      {String? nonce}) async {
+      {String? nonce, String format = 'webm'}) async {
     final response = await _sendVoiceNote(
         '/api/users/@me/conversations/$conversationId/messages', audio,
-        nonce: nonce);
+        nonce: nonce, format: format);
     return DirectMessage.fromJson(_decodeMap(response));
   }
 
@@ -1054,14 +1160,19 @@ mixin RestMethods {
     return UserMeResult.fromJson(_decodeMap(response));
   }
 
-  /// Updates the user. Only the arguments given are sent; [clearAlias] sends
-  /// null for the alias.
+  /// Updates the user. Only the arguments given are sent, and the API keeps
+  /// what's left out, but an API from before bios clears the alias when it's
+  /// left out: send it to keep it. [clearAlias] sends null for the alias.
+  /// [custom] is the bio: the API trims it and takes [maxBioLength] characters
+  /// at most (a 400 past that), and an empty one clears it. An API from before
+  /// bios ignores it, and answers the bio it had.
   Future<UserMeResult> updateUser({
     String? username,
     String? alias,
     bool clearAlias = false,
     String? avatar,
     String? banner,
+    String? custom,
   }) async {
     final response =
         await request('PATCH', '/api/users/@me', 'update user', json: {
@@ -1069,7 +1180,24 @@ mixin RestMethods {
       if (alias != null || clearAlias) 'alias': alias,
       if (avatar != null) 'avatar': avatar,
       if (banner != null) 'banner': banner,
+      if (custom != null) 'custom': custom,
     });
+    return UserMeResult.fromJson(_decodeMap(response));
+  }
+
+  /// Chooses the user's status: [UserStatus.online] or [UserStatus.dnd] (do
+  /// not disturb), which the people they share a space with see while they're
+  /// connected; every session of theirs gets it as USER_STATUS_UPDATE.
+  /// Answers the user, with [UserMeResult.status]. Offline isn't a choice (an
+  /// [ArgumentError]: the gateway says it when they have no connection), and
+  /// a bot can't choose (403).
+  Future<UserMeResult> setStatus(UserStatus status) async {
+    if (status != UserStatus.online && status != UserStatus.dnd) {
+      throw ArgumentError.value(
+          status.value, 'status', 'must be online (1) or dnd (2)');
+    }
+    final response = await request('PUT', '/api/users/@me/status', 'set status',
+        json: {'status': status.value});
     return UserMeResult.fromJson(_decodeMap(response));
   }
 
@@ -1346,6 +1474,11 @@ mixin RestMethods {
   /// renews the session and sends it once more, as does a 401 to a request
   /// sent before a renewal that has finished since. [action] names it in
   /// errors.
+  ///
+  /// It fails with a [TimeoutException] when [timeout] ([requestTimeout]
+  /// unless given) passes without progress. [onProgress] gets the bytes of the
+  /// body sent so far, and their total; completing [abortTrigger] cancels the
+  /// request, which then fails with an [http.RequestAbortedException].
   Future<http.Response> request(
     String method,
     String path,
@@ -1355,6 +1488,9 @@ mixin RestMethods {
     Map<String, String>? fields,
     List<FilePart>? files,
     bool renew = true,
+    Duration? timeout,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   }) async {
     final url = router.urlFromPath(path, query: query);
 
@@ -1366,10 +1502,7 @@ mixin RestMethods {
           ..files.addAll([
             for (final f in files ?? const <FilePart>[])
               http.MultipartFile.fromBytes(f.field, f.bytes,
-                  filename: f.filename,
-                  contentType: f.filename == _voiceNoteName
-                      ? MediaType('audio', 'webm')
-                      : _mediaTypeOf(f.filename)),
+                  filename: f.filename, contentType: _mediaTypeOf(f.filename)),
           ]);
       }
       final request = http.Request(method, url)..headers.addAll(authHeaders);
@@ -1380,8 +1513,10 @@ mixin RestMethods {
       return request;
     }
 
-    Future<http.Response> sendOnce() async =>
-        http.Response.fromStream(await client.send(build()));
+    Future<http.Response> sendOnce() => sendWithin(client, build(),
+        timeout: timeout ?? requestTimeout,
+        abortTrigger: abortTrigger,
+        onProgress: onProgress);
 
     final sentWith = authHeaders['Authorization'];
     var response = await sendOnce();
@@ -1402,36 +1537,49 @@ mixin RestMethods {
     List<File>? files,
     List<Embed>? embeds,
     String? stickerAttachmentId,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   }) async {
     if (files != null && files.isNotEmpty) {
-      return request('POST', path, 'send message', fields: {
-        'content': content,
-        if (nonce != null && nonce.isNotEmpty) 'nonce': nonce,
-        if (messageReference != null)
-          'message_reference': jsonEncode(messageReference.toJson()),
-      }, files: [
-        for (final f in files) await _filePart('files', f),
-      ]);
+      return request('POST', path, 'send message',
+          fields: {
+            'content': content,
+            if (nonce != null && nonce.isNotEmpty) 'nonce': nonce,
+            if (messageReference != null)
+              'message_reference': jsonEncode(messageReference.toJson()),
+          },
+          files: [
+            for (final f in files) await _filePart('files', f),
+          ],
+          onProgress: onProgress,
+          abortTrigger: abortTrigger);
     }
-    return request('POST', path, 'send message', json: {
-      'content': content,
-      if (nonce != null) 'nonce': nonce,
-      if (messageReference != null)
-        'message_reference': messageReference.toJson(),
-      if (embeds != null && embeds.isNotEmpty)
-        'embeds': embeds.map((e) => e.toJson()).toList(),
-      if (stickerAttachmentId != null && stickerAttachmentId.isNotEmpty)
-        'sticker_attachment_id': stickerAttachmentId,
-    });
+    return request('POST', path, 'send message',
+        json: {
+          'content': content,
+          if (nonce != null) 'nonce': nonce,
+          if (messageReference != null)
+            'message_reference': messageReference.toJson(),
+          if (embeds != null && embeds.isNotEmpty)
+            'embeds': embeds.map((e) => e.toJson()).toList(),
+          if (stickerAttachmentId != null && stickerAttachmentId.isNotEmpty)
+            'sticker_attachment_id': stickerAttachmentId,
+        },
+        onProgress: onProgress,
+        abortTrigger: abortTrigger);
   }
 
   Future<http.Response> _sendVoiceNote(String path, List<int> audio,
-      {String? nonce}) {
+      {String? nonce, required String format}) async {
+    if (!_voiceNoteTypes.containsKey(format)) {
+      throw ArgumentError.value(format, 'format',
+          'a voice note is ${_voiceNoteTypes.keys.join(', ')}');
+    }
     return request('POST', path, 'send voice note', fields: {
       'type': '${MessageType.voice.value}',
       if (nonce != null && nonce.isNotEmpty) 'nonce': nonce,
     }, files: [
-      (field: 'files', bytes: audio, filename: _voiceNoteName),
+      (field: 'files', bytes: audio, filename: '$_voiceNote.$format'),
     ]);
   }
 
@@ -1439,7 +1587,7 @@ mixin RestMethods {
   Future<FilePart> _filePart(String field, File file) async => (
         field: field,
         bytes: await file.readAsBytes(),
-        filename: file.path.split(Platform.pathSeparator).last,
+        filename: _basename(file.path),
       );
 
   Map<String, dynamic> _decodeMap(http.Response response) =>

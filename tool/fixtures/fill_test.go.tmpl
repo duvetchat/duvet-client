@@ -15,7 +15,8 @@ import (
 type variant int
 
 const (
-	// full sets every pointer and makes every slice and map one element long.
+	// full sets every pointer and makes every slice and map one element long,
+	// but leaves a struct type inside itself nil or empty (see fill).
 	full variant = iota
 	// nulls leaves every pointer nil and every slice and map empty, as sqlc
 	// emits them.
@@ -28,8 +29,12 @@ const (
 
 func (v variant) String() string { return [...]string{"full", "nulls", "partial"}[v] }
 
-// fill gives every field of v a value, as variant says.
-func fill(v reflect.Value, mode variant, depth int) {
+// fill gives every field of v a value, as variant says. A struct type inside
+// itself (a component's components, accessory or label input) is left nil or
+// empty: each of its fields is still set once, and the fixtures stay small,
+// where filling each level again grows them as a power of those fields.
+// within holds the struct types being filled.
+func fill(v reflect.Value, mode variant, depth int, within map[reflect.Type]bool) {
 	isFull := mode == full
 	t := v.Type()
 	switch {
@@ -57,7 +62,7 @@ func fill(v reflect.Value, mode variant, depth int) {
 		v.SetFloat(1.5)
 	case reflect.Array:
 		for i := 0; i < v.Len(); i++ {
-			fill(v.Index(i), mode, depth)
+			fill(v.Index(i), mode, depth, within)
 		}
 		if t.Elem().Kind() == reflect.Uint8 { // a uuid
 			v.Index(0).SetUint(uint64(0x10 + depth))
@@ -66,37 +71,47 @@ func fill(v reflect.Value, mode variant, depth int) {
 		}
 	case reflect.Pointer:
 		structPtr := t.Elem().Kind() == reflect.Struct && t.Elem() != reflect.TypeOf(time.Time{})
-		if depth > 6 || mode == nulls || (mode == partial && !structPtr) {
+		if depth > 6 || mode == nulls || (mode == partial && !structPtr) || within[base(t)] {
 			return
 		}
 		p := reflect.New(t.Elem())
-		fill(p.Elem(), mode, depth+1)
+		fill(p.Elem(), mode, depth+1, within)
 		v.Set(p)
 	case reflect.Slice:
 		s := reflect.MakeSlice(t, 0, 1)
-		if isFull && depth <= 6 {
+		if isFull && depth <= 6 && !within[base(t)] {
 			e := reflect.New(t.Elem()).Elem()
-			fill(e, mode, depth+1)
+			fill(e, mode, depth+1, within)
 			s = reflect.Append(s, e)
 		}
 		v.Set(s)
 	case reflect.Map:
 		m := reflect.MakeMap(t)
-		if isFull && depth <= 6 {
+		if isFull && depth <= 6 && !within[base(t)] {
 			k := reflect.New(t.Key()).Elem()
-			fill(k, mode, depth+1)
+			fill(k, mode, depth+1, within)
 			e := reflect.New(t.Elem()).Elem()
-			fill(e, mode, depth+1)
+			fill(e, mode, depth+1, within)
 			m.SetMapIndex(k, e)
 		}
 		v.Set(m)
 	case reflect.Struct:
+		within[t] = true
+		defer delete(within, t)
 		for i := 0; i < v.NumField(); i++ {
 			if v.Field(i).CanSet() {
-				fill(v.Field(i), mode, depth)
+				fill(v.Field(i), mode, depth, within)
 			}
 		}
 	}
+}
+
+// base is the type t holds, through pointers, slices and maps.
+func base(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Map {
+		t = t.Elem()
+	}
+	return t
 }
 
 // write marshals make's value of each variant to FIXTURES_DIR/name.variant.json.
@@ -119,6 +134,6 @@ func write(t *testing.T, name string, make func(variant) any) {
 // of is a T as mode fills it.
 func of[T any](mode variant) any {
 	var v T
-	fill(reflect.ValueOf(&v).Elem(), mode, 0)
+	fill(reflect.ValueOf(&v).Elem(), mode, 0, map[reflect.Type]bool{})
 	return v
 }

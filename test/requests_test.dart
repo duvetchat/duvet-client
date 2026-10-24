@@ -1,6 +1,7 @@
 // What each method sends: its method, path, query and body, as the desktop
 // app's API layer (desktop-electrobun/src/mainview/src/lib/api/) sends them,
 // and how the client renews its session.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -246,6 +247,28 @@ void main() {
       });
     });
 
+    test('history pages take a count', () async {
+      final c = _client((s) => s.path.startsWith('/api/rooms')
+          ? [_message]
+          : [
+              {..._message, 'conversation_id': 'c1'}
+            ]);
+      await c.api.getMessages('r1', count: 1);
+      await c.api.getDirectMessages('c1', count: 1);
+      await c.api.getDirectMessages('c1', before: 'd0');
+      expect(c.sent[0].query, {
+        'count': ['1']
+      });
+      expect(c.sent[1].path, '/api/users/@me/conversations/c1/messages');
+      expect(c.sent[1].query, {
+        'count': ['1']
+      });
+      expect(c.sent[2].query, {
+        'count': ['100'],
+        'before': ['d0'],
+      });
+    });
+
     test('getMessagesAfter asks in ascending order', () async {
       final c = _client((_) => [_message]);
       await c.api.getMessagesAfter('r1', 'm5');
@@ -319,6 +342,64 @@ void main() {
       expect(body, contains('name="type"\r\n\r\n1'));
       expect(body, contains('filename="voice-note.webm"'));
       expect(body, contains('content-type: audio/webm'));
+    });
+
+    test('voice notes name their format: Ogg/Opus or AAC in MP4', () async {
+      final c = _client((s) => s.path.startsWith('/api/rooms')
+          ? {..._message, 'type': 1}
+          : {..._message, 'type': 1, 'conversation_id': 'c1'});
+      await c.api.sendVoiceNote('r1', [1], format: 'ogg');
+      final dm = await c.api.sendDMVoiceNote('c1', [1], format: 'm4a');
+      expect(dm.type, MessageType.voice);
+      expect(c.sent[0].request.body, contains('filename="voice-note.ogg"'));
+      expect(c.sent[0].request.body, contains('content-type: audio/ogg'));
+      expect(c.sent[1].path, '/api/users/@me/conversations/c1/messages');
+      expect(c.sent[1].request.body, contains('name="type"\r\n\r\n1'));
+      expect(c.sent[1].request.body, contains('filename="voice-note.m4a"'));
+      expect(c.sent[1].request.body, contains('content-type: audio/mp4'));
+    });
+
+    test('a voice note in another format is refused before sending', () async {
+      final c = _client((_) => _message);
+      await expectLater(c.api.sendVoiceNote('r1', [1], format: 'mp3'),
+          throwsA(isA<ArgumentError>()));
+      expect(c.sent, isEmpty);
+    });
+
+    test('an upload reports its progress, in pieces', () async {
+      final dir = Directory.systemTemp.createTempSync('duvet_test');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final file = File('${dir.path}/big.bin')
+        ..writeAsBytesSync(List.filled(300 * 1024, 7));
+
+      final c = _client((_) => {..._message, 'conversation_id': 'c1'});
+      final progress = <(int, int)>[];
+      await c.api.sendDirectMessage('c1', 'look',
+          files: [file],
+          onProgress: (sent, total) => progress.add((sent, total)));
+      final total = c.sent.single.request.bodyBytes.length;
+      expect(progress.length, greaterThan(4));
+      expect(progress.map((p) => p.$2).toSet(), {total});
+      expect(progress.last, (total, total));
+      for (var i = 1; i < progress.length; i++) {
+        expect(progress[i].$1, greaterThan(progress[i - 1].$1));
+      }
+    });
+
+    test('a cancelled send fails with RequestAbortedException', () async {
+      final never = Completer<http.Response>();
+      final api = RestClient(MockClient((_) => never.future), token: 'tok');
+      final cancel = Completer<void>();
+      final sending = api.sendMessage('r1', 'hi', abortTrigger: cancel.future);
+      cancel.complete();
+      await expectLater(sending, throwsA(isA<http.RequestAbortedException>()));
+    });
+
+    test('a request that gets no answer fails with TimeoutException', () async {
+      final never = Completer<http.Response>();
+      final api = RestClient(MockClient((_) => never.future),
+          token: 'tok', requestTimeout: const Duration(milliseconds: 100));
+      await expectLater(api.getFriends(), throwsA(isA<TimeoutException>()));
     });
 
     test('updateMessage and deleteMessage', () async {
@@ -541,12 +622,61 @@ void main() {
   });
 
   group('spaces', () {
-    test('createSpace', () async {
-      final c = _client((_) => null);
-      await c.api.createSpace('S');
+    final created = {
+      'space': {
+        'id': 's1',
+        'name': 'S',
+        'owner_id': 'u1',
+        'created_at': _time,
+        'updated_at': _time,
+      },
+      'role': _role,
+      'text_room': _room,
+      'voice_room': {..._room, 'id': 'r2', 'type': 2},
+      'member': {
+        'id': 'mem1',
+        'space_id': 's1',
+        'user_id': 'u1',
+        'created_at': _time,
+        'updated_at': _time,
+      },
+    };
+
+    test('createSpace answers the space and its rooms', () async {
+      final c = _client((_) => created);
+      final space = await c.api.createSpace('S');
       await c.api.createSpace('S', description: 'd');
+      expect(c.sent[0].method, 'POST');
+      expect(c.sent[0].path, '/api/spaces');
       expect(c.sent[0].json, {'name': 'S'});
       expect(c.sent[1].json, {'name': 'S', 'description': 'd'});
+      expect(space.id, 's1');
+      expect(space.space.ownerId, 'u1');
+      expect(space.rooms.map((r) => (r.id, r.type)),
+          [('r1', RoomType.text), ('r2', RoomType.voice)]);
+    });
+
+    test('deleteSpace', () async {
+      final c = _client((_) => http.Response('', 204));
+      await c.api.deleteSpace('s1');
+      expect(c.sent.single.method, 'DELETE');
+      expect(c.sent.single.path, '/api/spaces/s1');
+    });
+
+    test('deleteSpace: refusals keep their status and body', () async {
+      for (final (status, body) in [
+        (403, '{"error":"only the space\'s owner can delete it"}'),
+        (404, '{"error":"space not found"}'),
+        // An API without the route: gin's own plain-text 404.
+        (404, '404 page not found'),
+      ]) {
+        final c = _client((_) => http.Response(body, status));
+        await expectLater(
+            c.api.deleteSpace('s1'),
+            throwsA(isA<DuvetApiException>()
+                .having((e) => e.statusCode, 'statusCode', status)
+                .having((e) => e.body, 'body', body)));
+      }
     });
 
     test('updateSpace sends JSON, or a form for images', () async {
@@ -671,6 +801,18 @@ void main() {
       expect(c.sent[3].json, {'content': 'edit'});
     });
 
+    test('a message\'s thread', () async {
+      final c = _client((_) => [
+            dm,
+            {...dm, 'id': 'd2', 'ref_message_id': 'd1', 'depth': 1},
+          ]);
+      final thread = await c.api.getConversationMessageThread('c1', 'd1');
+      expect(c.sent.single.method, 'GET');
+      expect(c.sent.single.path,
+          '/api/users/@me/conversations/c1/messages/d1/thread');
+      expect(thread.map((m) => m.id), ['d1', 'd2']);
+    });
+
     test('members, pins, typing', () async {
       final c = _client((_) => null);
       await c.api.removeConversationMember('c1', 'u2');
@@ -723,6 +865,83 @@ void main() {
       });
     });
 
+    test('a use answers the modal the bot opened', () async {
+      final modal = {
+        'custom_id': 'feedback',
+        'title': 'Feedback',
+        'components': [
+          {'type': 18, 'label': 'What happened?'}
+        ],
+      };
+      final c = _client((s) => s.json['type'] == 3
+          ? {'type': 9, 'data': modal, 'application_id': 'app1'}
+          : {'type': 5});
+      final opened = await c.api.useComponent(
+          'r1', 'm1', const ComponentUse(customId: 'b', componentType: 2));
+      expect(opened.isModal, isTrue);
+      expect(opened.modal, modal);
+      expect(opened.applicationId, 'app1');
+      final deferred = await c.api
+          .useCommand('r1', 'app1', const CommandUse(id: 'cmd1', name: 'roll'));
+      expect((deferred.type, deferred.isModal), (5, false));
+      expect(c.sent[0].json, {
+        'type': 3,
+        'room_id': 'r1',
+        'message_id': 'm1',
+        'data': {'custom_id': 'b', 'component_type': 2},
+      });
+      expect(c.sent[1].json, {
+        'type': 2,
+        'room_id': 'r1',
+        'application_id': 'app1',
+        'data': {'id': 'cmd1', 'name': 'roll', 'type': 1, 'options': []},
+      });
+    });
+
+    test('submitModal sends the modal\'s answers', () async {
+      final c = _client((_) => {'type': 4});
+      final answers = [
+        {
+          'type': 18,
+          'id': 1,
+          'component': {'type': 4, 'custom_id': 'why', 'value': 'it broke'},
+        }
+      ];
+      final reply = await c.api
+          .submitModal('r1', 'app1', 'feedback', answers, messageId: 'm1');
+      await c.api.submitModal('r1', 'app1', 'feedback', answers);
+      expect(reply.type, 4);
+      expect(c.sent[0].path, '/api/interactions');
+      expect(c.sent[0].json, {
+        'type': 5,
+        'room_id': 'r1',
+        'application_id': 'app1',
+        'message_id': 'm1',
+        'data': {'custom_id': 'feedback', 'components': answers},
+      });
+      expect(c.sent[1].json.containsKey('message_id'), isFalse);
+    });
+
+    test('a failed command use forgets the space commands', () async {
+      var fail = false;
+      final c = _client((s) => s.method == 'GET'
+          ? {'applications': <Object>[], 'commands': <Object>[]}
+          : fail
+              ? http.Response('{"error":"unknown command"}', 404)
+              : {'type': 4});
+      await c.api.getSpaceCommands('s1');
+      await c.api
+          .useCommand('r1', 'app1', const CommandUse(id: 'c', name: 'x'));
+      await c.api.getSpaceCommands('s1');
+      expect(c.sent.where((s) => s.method == 'GET'), hasLength(1));
+      fail = true;
+      await expectLater(
+          c.api.useCommand('r1', 'app1', const CommandUse(id: 'c', name: 'x')),
+          throwsA(isA<DuvetApiException>()));
+      await c.api.getSpaceCommands('s1');
+      expect(c.sent.where((s) => s.method == 'GET'), hasLength(2));
+    });
+
     test('space commands are cached, and a failed list is not', () async {
       var fail = true;
       final c = _client((_) => fail
@@ -758,8 +977,47 @@ void main() {
           });
       await c.api.updateUser(username: 'me');
       await c.api.updateUser(clearAlias: true);
+      await c.api.updateUser(alias: 'Me', custom: 'Hi 👋');
+      // An empty bio clears it; left out, it stays.
+      await c.api.updateUser(custom: '');
       expect(c.sent[0].json, {'username': 'me'});
       expect(c.sent[1].json, {'alias': null});
+      expect(c.sent[2].json, {'alias': 'Me', 'custom': 'Hi 👋'});
+      expect(c.sent[3].json, {'custom': ''});
+    });
+
+    test('setStatus chooses online or do not disturb', () async {
+      final c = _client((_) => {
+            'id': 'u1',
+            'username': 'me',
+            'email_verified': true,
+            'custom': '',
+            'status': 2,
+            'created_at': _time,
+            'updated_at': _time,
+          });
+      final me = await c.api.setStatus(UserStatus.dnd);
+      await c.api.setStatus(UserStatus.online);
+      expect(c.sent[0].method, 'PUT');
+      expect(c.sent[0].path, '/api/users/@me/status');
+      expect(c.sent[0].json, {'status': 2});
+      expect(c.sent[1].json, {'status': 1});
+      expect(me.status, UserStatus.dnd);
+
+      // Offline isn't a choice: nothing is sent.
+      await expectLater(
+          c.api.setStatus(UserStatus.offline), throwsArgumentError);
+      expect(c.sent, hasLength(2));
+    });
+
+    test('setStatus: a bot\'s refusal keeps its status and body', () async {
+      const body = '{"error":"bots cannot access this endpoint"}';
+      final c = _client((_) => http.Response(body, 403));
+      await expectLater(
+          c.api.setStatus(UserStatus.dnd),
+          throwsA(isA<DuvetApiException>()
+              .having((e) => e.statusCode, 'statusCode', 403)
+              .having((e) => e.body, 'body', body)));
     });
 
     test('uploadProfileImage sends the crop', () async {

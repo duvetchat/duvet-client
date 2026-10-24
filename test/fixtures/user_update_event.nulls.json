@@ -4,6 +4,7 @@
   "alias": null,
   "avatar": null,
   "banner": null,
+  "custom": "s-string",
   "flags": 2,
   "badges": 2
 }

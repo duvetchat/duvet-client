@@ -112,6 +112,8 @@ mixin GatewayEvents {
       onEvent.whereType<DMReactionRemovedEvent>();
   Stream<DMTypingStartedEvent> get onDMTyping =>
       onEvent.whereType<DMTypingStartedEvent>();
+  Stream<DMMentionCreatedEvent> get onDMMentionCreate =>
+      onEvent.whereType<DMMentionCreatedEvent>();
 
   Stream<ConversationCreatedEvent> get onConversationCreate =>
       onEvent.whereType<ConversationCreatedEvent>();
@@ -137,6 +139,8 @@ mixin GatewayEvents {
       onEvent.whereType<VoiceStateUpdatedEvent>();
   Stream<VoiceJoinedPayloadEvent> get onVoiceJoin =>
       onEvent.whereType<VoiceJoinedPayloadEvent>();
+  Stream<VoiceSessionReplacedPayloadEvent> get onVoiceSessionReplaced =>
+      onEvent.whereType<VoiceSessionReplacedPayloadEvent>();
 
   Stream<CallIncomingPayloadEvent> get onCallIncoming =>
       onEvent.whereType<CallIncomingPayloadEvent>();

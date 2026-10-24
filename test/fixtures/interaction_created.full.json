@@ -1,3 +1,89 @@
 {
-  "type": 2
+  "type": 2,
+  "data": {
+    "custom_id": "s-string",
+    "title": "s-string",
+    "components": [
+      {
+        "type": 2,
+        "id": 2,
+        "custom_id": "s-string",
+        "style": 2,
+        "label": "s-string",
+        "emoji": {
+          "id": "14020202-0202-7002-8002-020202020202",
+          "name": "s-string",
+          "animated": true
+        },
+        "url": "s-string",
+        "disabled": true,
+        "placeholder": "s-string",
+        "min_values": 2,
+        "max_values": 2,
+        "options": [
+          {
+            "label": "s-string",
+            "value": "s-string",
+            "description": "s-string",
+            "emoji": {
+              "id": "15020202-0202-7002-8002-020202020202",
+              "name": "s-string",
+              "animated": true
+            },
+            "default": true
+          }
+        ],
+        "default_values": [
+          {
+            "id": "13020202-0202-7002-8002-020202020202",
+            "type": "s-string"
+          }
+        ],
+        "room_types": [
+          2
+        ],
+        "required": true,
+        "min_length": 2,
+        "max_length": 2,
+        "value": "s-string",
+        "default": true,
+        "content": "s-string",
+        "media": {
+          "url": "s-string",
+          "attachment_id": "14020202-0202-7002-8002-020202020202",
+          "content_type": "s-string",
+          "width": 2,
+          "height": 2
+        },
+        "description": "s-string",
+        "spoiler": true,
+        "items": [
+          {
+            "media": {
+              "url": "s-string",
+              "attachment_id": "15020202-0202-7002-8002-020202020202",
+              "content_type": "s-string",
+              "width": 2,
+              "height": 2
+            },
+            "description": "s-string",
+            "spoiler": true
+          }
+        ],
+        "file": {
+          "url": "s-string",
+          "attachment_id": "14020202-0202-7002-8002-020202020202",
+          "content_type": "s-string",
+          "width": 2,
+          "height": 2
+        },
+        "name": "s-string",
+        "size": 2,
+        "divider": true,
+        "spacing": 2,
+        "accent_color": 2
+      }
+    ]
+  },
+  "application_id": "11020202-0202-7002-8002-020202020202"
 }

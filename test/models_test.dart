@@ -60,6 +60,8 @@ void main() {
   group('users', () {
     _parses('user_me', UserMeResult.fromJson, check: (u, variant) {
       expect(u.createdAt, DateTime.utc(2026, 10, 22, 10, 0, 0, 123, 456));
+      // The status the user chose: left out for a bot, and by an older API.
+      expect(u.status, variant == 'full' ? UserStatus.dnd : isNull);
     });
     _parses('user', GatewayUser.fromJson);
     _parses('user', BotUser.fromJson);
@@ -149,6 +151,8 @@ void main() {
     _parses('message_response', DirectMessage.fromJson, always: author);
     _parses('dm_message_create', DirectMessage.fromJson, always: author);
     _parses('dm_message_update', DirectMessage.fromJson, always: author);
+    // A conversation's thread has a room's thread's shape.
+    _parses('thread_message', DirectMessage.fromJson, always: author);
 
     test('search', () {
       for (final json in _variants('message_search').values) {
@@ -171,6 +175,45 @@ void main() {
     _parses('webhook_create', WebhookCreateResponse.fromJson);
     _parses('space_member', SpaceMemberWithUser.fromJson);
     _parses('space_commands', SpaceCommands.fromJson);
+    _parses('create_space_result', CreatedSpace.fromJson, check: (s, _) {
+      expect(s.id, s.space.id);
+      expect(s.rooms, hasLength(2));
+    });
+
+    test('a created space needs only the space and its rooms', () {
+      final full = _load('create_space_result', 'full');
+      final s = CreatedSpace.fromJson({
+        for (final key in ['space', 'text_room', 'voice_room']) key: full[key],
+      });
+      expect(s.rooms.map((r) => r.id), [
+        (full['text_room'] as Map)['id'],
+        (full['voice_room'] as Map)['id'],
+      ]);
+    });
+  });
+
+  group('interactions', () {
+    _parses('interaction_created', InteractionReply.fromJson,
+        check: (r, variant) {
+      expect(r.type, 2);
+      expect(r.isModal, isFalse);
+    });
+
+    test('a modal: its data and application', () {
+      final r = InteractionReply.fromJson(
+          {..._load('interaction_created', 'full'), 'type': 9});
+      expect(r.isModal, isTrue);
+      expect(r.modal!['custom_id'], 's-string');
+      expect(r.modal!['components'], isNotEmpty);
+      expect(r.applicationId, isNotNull);
+    });
+
+    test('a modal without its application is not one to open', () {
+      final r = InteractionReply.fromJson(
+          {..._load('interaction_created', 'partial'), 'type': 9});
+      expect(r.modal, isNotNull);
+      expect(r.isModal, isFalse);
+    });
   });
 
   group('conversations and friends', () {
@@ -214,10 +257,12 @@ void main() {
       'MESSAGE_UPDATE': ('message_update', ['room_id']),
       'MESSAGE_DELETE': ('message_delete', []),
       'MENTION_CREATE': ('mention_create_event', []),
+      'DM_MENTION_CREATE': ('dm_mention_create_event', []),
       'USER_UPDATE': ('user_update_event', []),
       'USER_STATUS_UPDATE': ('user_status_update_event', []),
       'VOICE_STATE_UPDATE': ('voice_state_update_event', []),
       'VOICE_JOINED': ('voice_joined_event', []),
+      'VOICE_SESSION_REPLACED': ('voice_session_replaced_event', []),
       'WEBRTC_ICE_CANDIDATE': ('webrtc_ice_candidate_event', []),
       'WEBRTC_RENEGOTIATE': ('webrtc_renegotiate_event', []),
       'WEBRTC_RENEGOTIATE_ANSWER': ('webrtc_renegotiate_answer_event', []),
@@ -301,6 +346,26 @@ void main() {
       }
     });
 
+    test('READY: the status the user chose; none from an older gateway', () {
+      for (final json in _variants('ready_event').values) {
+        final e = dispatch('READY', json) as ReadyEvent;
+        expect(e.data.user.status, UserStatus.dnd);
+      }
+      final json = _load('ready_event', 'full');
+      final user = _without(json['user'] as Map<String, dynamic>, 'status');
+      final older = dispatch('READY', {...json, 'user': user}) as ReadyEvent;
+      expect(older.data.user.status, isNull);
+    });
+
+    test('USER_UPDATE carries the bio; an older API leaves it out', () {
+      final json = _load('user_update_event', 'full');
+      final e = dispatch('USER_UPDATE', json) as UserUpdatedEvent;
+      expect(e.data.custom, json['custom']);
+      final older =
+          dispatch('USER_UPDATE', _without(json, 'custom')) as UserUpdatedEvent;
+      expect(older.data.custom, isNull);
+    });
+
     test('SPACE_CREATE: rooms and roles are maps by ID', () {
       final e = dispatch('SPACE_CREATE', _load('space_create_event', 'full'))
           as SpaceCreateEvent;
@@ -308,8 +373,228 @@ void main() {
       expect(e.data.rolesPermissions, isNotEmpty);
     });
 
+    test('SPACE_CREATE: the members\' statuses, none when left out', () {
+      final full = dispatch('SPACE_CREATE', _load('space_create_event', 'full'))
+          as SpaceCreateEvent;
+      expect(full.data.memberStatuses, {'s-string': UserStatus.dnd});
+      final nulls =
+          dispatch('SPACE_CREATE', _load('space_create_event', 'nulls'))
+              as SpaceCreateEvent;
+      expect(nulls.data.memberStatuses, isEmpty);
+    });
+
+    test('mentions carry their message and author', () {
+      final room =
+          dispatch('MENTION_CREATE', _load('mention_create_event', 'full'))
+              as MentionCreatedEvent;
+      expect((room.data.messageId, room.data.roomId, room.data.authorId),
+          ('s-string', 's-string', 's-string'));
+      expect(room.data.conversationId, isNull);
+
+      final json = _load('dm_mention_create_event', 'full');
+      final dm = dispatch('DM_MENTION_CREATE', json) as DMMentionCreatedEvent;
+      expect((dm.data.messageId, dm.data.conversationId, dm.data.authorId),
+          (json['message_id'], json['conversation_id'], json['author_id']));
+    });
+
     test('an event the client doesn\'t know', () {
       expect(dispatch('SOMETHING_NEW', {'a': 1}), isA<UnknownEvent>());
+    });
+  });
+
+  group('voice and calls', () {
+    GatewayEventPayload? dispatch(String type, Map<String, dynamic> data) =>
+        GatewayEnvelope.fromJson({
+          'event': 'payload',
+          'op': 1,
+          'd': {'type': type, 'data': data},
+          's': 7,
+        }).d;
+
+    test('READY: the ICE servers, STUN and TURN with its credentials', () {
+      final full =
+          dispatch('READY', _load('ready_event', 'full')) as ReadyEvent;
+      final server = full.data.iceServers.single;
+      expect(server.urls, ['s-string']);
+      expect(server.username, 's-string');
+      // pion's credential is `any`: the fixture leaves it out.
+      expect(server.credential, isNull);
+
+      // As the gateway sends them: the STUN server, then the relay.
+      final json = {
+        ..._load('ready_event', 'nulls'),
+        'ice_servers': [
+          {
+            'urls': ['stun:stun.l.google.com:19302'],
+            'credentialType': 'password',
+          },
+          {
+            'urls': [
+              'turn:turn.duvet.chat:3478?transport=udp',
+              'turns:turn.duvet.chat:5349?transport=tcp',
+            ],
+            'username': '1761300000:u1',
+            'credential': 'c2VjcmV0',
+            'credentialType': 'password',
+          },
+        ],
+      };
+      final ready = dispatch('READY', json) as ReadyEvent;
+      expect(ready.data.iceServers.map((s) => s.toJson()), [
+        {
+          'urls': ['stun:stun.l.google.com:19302'],
+        },
+        {
+          'urls': [
+            'turn:turn.duvet.chat:3478?transport=udp',
+            'turns:turn.duvet.chat:5349?transport=tcp',
+          ],
+          'username': '1761300000:u1',
+          'credential': 'c2VjcmV0',
+        },
+      ]);
+
+      final nulls =
+          dispatch('READY', _load('ready_event', 'nulls')) as ReadyEvent;
+      expect(nulls.data.iceServers, isEmpty);
+      final bot =
+          dispatch('READY', _load('bot_ready_event', 'full')) as ReadyEvent;
+      expect(bot.data.iceServers, isEmpty);
+    });
+
+    test('an ICE server with one URL, or an OAuth credential', () {
+      final s = IceServer.fromJson({
+        'urls': 'stun:example.invalid',
+        'credential': {'macKey': 'k', 'accessToken': 't'},
+      });
+      expect(s.urls, ['stun:example.invalid']);
+      expect(s.credential, isNull);
+    });
+
+    test('READY: a call\'s voice states have their camera and version', () {
+      final e = dispatch('READY', _load('ready_event', 'full')) as ReadyEvent;
+      final state = e.data.activeCalls!.single.voiceStates!.single;
+      expect((state.camera, state.version), (true, 2));
+    });
+
+    test('SPACE_CREATE: the voice rooms\' states', () {
+      final e = dispatch('SPACE_CREATE', _load('space_create_event', 'full'))
+          as SpaceCreateEvent;
+      final state = e.data.voiceStates!.single;
+      expect((state.muted, state.camera, state.version), (true, true, 2));
+      final nulls =
+          dispatch('SPACE_CREATE', _load('space_create_event', 'nulls'))
+              as SpaceCreateEvent;
+      expect(nulls.data.voiceStates, isEmpty);
+    });
+
+    test('VOICE_STATE_UPDATE: the whole state, with its version', () {
+      final joined = dispatch(
+              'VOICE_STATE_UPDATE', _load('voice_state_update_event', 'full'))
+          as VoiceStateUpdatedEvent;
+      expect((
+        joined.data.joined,
+        joined.data.muted,
+        joined.data.deafened,
+        joined.data.screenSharing,
+        joined.data.camera,
+        joined.data.version,
+      ), (
+        true,
+        true,
+        true,
+        true,
+        true,
+        2
+      ));
+      final left = dispatch(
+              'VOICE_STATE_UPDATE', _load('voice_state_update_event', 'nulls'))
+          as VoiceStateUpdatedEvent;
+      expect((left.data.joined, left.data.muted), (false, false));
+    });
+
+    test('VOICE_JOINED and the renegotiations carry their descriptions', () {
+      final joined =
+          dispatch('VOICE_JOINED', _load('voice_joined_event', 'full'))
+              as VoiceJoinedPayloadEvent;
+      expect(joined.data.answer?.sdp, 's-string');
+      final offer = dispatch(
+              'WEBRTC_RENEGOTIATE', _load('webrtc_renegotiate_event', 'full'))
+          as WebRTCRenegotiateEvent;
+      expect(
+          (offer.data.roomId, offer.data.offer.sdp), ('s-string', 's-string'));
+      final answer = dispatch('WEBRTC_RENEGOTIATE_ANSWER',
+              _load('webrtc_renegotiate_answer_event', 'nulls'))
+          as WebRTCRenegotiateAnswerEvent;
+      expect(answer.data.answer, isNull);
+    });
+
+    test('WEBRTC_ICE_CANDIDATE: the candidate is a JSON string', () {
+      // What webrtc.go sends: json.Marshal(candidate.ToJSON()) as a string.
+      const init = '{"candidate":"candidate:1 1 udp 2130706431 45.77.6.83 '
+          '50000 typ host","sdpMid":"0","sdpMLineIndex":0,'
+          '"usernameFragment":null}';
+      final e = dispatch('WEBRTC_ICE_CANDIDATE', {
+        'candidate': init,
+        'room_id': 'r1',
+      }) as WebRTCIceCandidateEvent;
+      expect(e.data.roomId, 'r1');
+      expect(e.data.candidate.candidate,
+          'candidate:1 1 udp 2130706431 45.77.6.83 50000 typ host');
+      expect(
+          (e.data.candidate.sdpMid, e.data.candidate.sdpMLineIndex), ('0', 0));
+      expect(e.data.candidate.toJson(), {
+        'candidate': 'candidate:1 1 udp 2130706431 45.77.6.83 50000 typ host',
+        'sdpMid': '0',
+        'sdpMLineIndex': 0,
+      });
+    });
+
+    test('WEBRTC_ICE_CANDIDATE: an object, or a bare line', () {
+      final object = dispatch('WEBRTC_ICE_CANDIDATE', {
+        'candidate': {'candidate': 'candidate:x', 'sdpMLineIndex': 1},
+        'room_id': 'r1',
+      }) as WebRTCIceCandidateEvent;
+      expect((object.data.candidate.candidate, object.data.candidate.sdpMid),
+          ('candidate:x', null));
+      // The fixture's string isn't JSON: the line itself.
+      final line = dispatch('WEBRTC_ICE_CANDIDATE',
+              _load('webrtc_ice_candidate_event', 'full'))
+          as WebRTCIceCandidateEvent;
+      expect(line.data.candidate.candidate, 's-string');
+      final broken = dispatch('WEBRTC_ICE_CANDIDATE', {
+        'candidate': '{not json',
+        'room_id': 'r1',
+      }) as WebRTCIceCandidateEvent;
+      expect(broken.data.candidate.candidate, '{not json');
+    });
+
+    test('VOICE_SESSION_REPLACED: another device, or lost access', () {
+      final json = _load('voice_session_replaced_event', 'full');
+      final lost = dispatch('VOICE_SESSION_REPLACED', json)
+          as VoiceSessionReplacedPayloadEvent;
+      expect(lost.data.reason, 's-string');
+      // omitempty: no reason when another device took the voice.
+      final moved = dispatch('VOICE_SESSION_REPLACED', _without(json, 'reason'))
+          as VoiceSessionReplacedPayloadEvent;
+      expect((moved.data.roomId, moved.data.reason), ('s-string', null));
+    });
+
+    test('calls: incoming, accepted, declined, ended', () {
+      final incoming =
+          dispatch('CALL_INCOMING', _load('call_incoming_event', 'nulls'))
+              as CallIncomingPayloadEvent;
+      expect(incoming.data.initiatorAvatar, isNull);
+      final accepted =
+          dispatch('CALL_ACCEPTED', _load('call_member_event', 'full'))
+              as CallAcceptedEvent;
+      final declined =
+          dispatch('CALL_DECLINED', _load('call_member_event', 'full'))
+              as CallDeclinedEvent;
+      expect((accepted.data.userId, declined.data.userId),
+          ('s-string', 's-string'));
+      expect(dispatch('CALL_ENDED', _load('call_ended_event', 'full')),
+          isA<CallEndedPayloadEvent>());
     });
   });
 }
