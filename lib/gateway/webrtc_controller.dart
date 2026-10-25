@@ -42,8 +42,8 @@ class VoiceParticipant {
 }
 
 /// Who's in voice in every room and call a session knows of, kept as the
-/// gateway reports it: READY's calls, each SPACE_CREATE's voice rooms, then
-/// every VOICE_STATE_UPDATE.
+/// gateway reports it: READY's calls, each SPACE_CREATE's voice rooms and
+/// each CALL_ONGOING's call, then every VOICE_STATE_UPDATE.
 ///
 /// Updates can arrive out of order. Each carries a version that grows with
 /// every change, and one older than what's known is dropped; one as new is
@@ -70,17 +70,7 @@ class VoiceStates {
     _rooms.clear();
     _versions.clear();
     for (final call in calls) {
-      for (final s in call.voiceStates ?? const <CallVoiceState>[]) {
-        _snapshot(VoiceParticipant(
-          userId: s.userId,
-          roomId: call.conversationId,
-          muted: s.muted,
-          deafened: s.deafened,
-          screenSharing: s.screenSharing,
-          camera: s.camera,
-          version: s.version,
-        ));
-      }
+      _call(call.conversationId, call.voiceStates);
     }
   }
 
@@ -95,6 +85,27 @@ class VoiceStates {
       _snapshot(VoiceParticipant(
         userId: s.userId,
         roomId: s.roomId,
+        muted: s.muted,
+        deafened: s.deafened,
+        screenSharing: s.screenSharing,
+        camera: s.camera,
+        version: s.version,
+      ));
+    }
+  }
+
+  /// CALL_ONGOING: who is in the call's voice as the gateway has it now
+  /// replaces what was known of it; an entry older than an update already
+  /// applied is left out.
+  void ongoing(CallOngoingEvent call) =>
+      _call(call.conversationId, call.voiceStates);
+
+  void _call(String conversationId, List<CallVoiceState>? states) {
+    _rooms.remove(conversationId);
+    for (final s in states ?? const <CallVoiceState>[]) {
+      _snapshot(VoiceParticipant(
+        userId: s.userId,
+        roomId: conversationId,
         muted: s.muted,
         deafened: s.deafened,
         screenSharing: s.screenSharing,
@@ -166,7 +177,12 @@ class VoiceStates {
 /// ### Calls
 /// A call's voice is joined like a room's, with the conversation's ID as the
 /// room: after [initiateCall] once someone accepts (CALL_ACCEPTED), or after
-/// [acceptCall].
+/// [acceptCall]. A call rings none of its caller's devices, which get
+/// CALL_OUTGOING instead ([onCallOutgoing]), and one that goes on without
+/// ringing the user comes as CALL_ONGOING ([onCallOngoing]); they join it
+/// with [acceptCall], or with [initiateCall]. A CALL_ACCEPTED with the user's
+/// own ID means they answered on another device, or rejoined a call they
+/// started.
 class WebRTCController {
   final GatewayManager _manager;
   final List<StreamSubscription<dynamic>> _subs = [];
@@ -187,6 +203,8 @@ class WebRTCController {
         voiceStates.space(data);
       case VoiceStateUpdatedEvent(:final data):
         if (voiceStates.apply(data) && !_updates.isClosed) _updates.add(event);
+      case CallOngoingPayloadEvent(:final data):
+        voiceStates.ongoing(data);
       case CallEndedPayloadEvent(:final data):
         voiceStates.forget(data.conversationId);
       case RoomDeletedEvent(:final data):
@@ -224,6 +242,15 @@ class WebRTCController {
 
   Stream<CallIncomingPayloadEvent> get onCallIncoming =>
       _manager.onCallIncoming;
+
+  /// A call the user started, on each of their sessions: it rings none of
+  /// them.
+  Stream<CallOutgoingPayloadEvent> get onCallOutgoing =>
+      _manager.onCallOutgoing;
+
+  /// A call that goes on without ringing the user, which they can join with
+  /// [acceptCall]; [voiceStates] has who is in it by then.
+  Stream<CallOngoingPayloadEvent> get onCallOngoing => _manager.onCallOngoing;
   Stream<CallAcceptedEvent> get onCallAccepted => _manager.onCallAccept;
   Stream<CallDeclinedEvent> get onCallDeclined => _manager.onCallDecline;
   Stream<CallEndedPayloadEvent> get onCallEnded => _manager.onCallEnd;
@@ -302,24 +329,39 @@ class WebRTCController {
   // Calls --------------------------------------------------------------------
 
   /// CALL_INITIATE: rings [memberIds] (the conversation's members; the caller
-  /// is left out of the ringing) with CALL_INCOMING. A call already going on
-  /// in the conversation is left as it is.
+  /// is left out of the ringing) with CALL_INCOMING, and the caller's sessions
+  /// get CALL_OUTGOING.
+  ///
+  /// Into a call going on, it starts none: it joins the call for one of its
+  /// members who isn't in its voice. From anyone but its caller, that counts
+  /// as accepting it (calls that crossed, or one that no longer rings them):
+  /// everyone gets CALL_ACCEPTED, and their app joins its voice. Its caller
+  /// who hung up rejoins the same way once someone has answered it, with a
+  /// CALL_ACCEPTED of their own ID that isn't an answer; before that, their
+  /// app joins at the first answer. From someone in its voice, it changes
+  /// nothing.
   bool initiateCall(String conversationId, List<String> memberIds) =>
       _send('CALL_INITIATE', {
         'conversation_id': conversationId,
         'member_ids': memberIds,
       });
 
-  /// CALL_ACCEPT: answers a call; everyone in it gets CALL_ACCEPTED.
+  /// CALL_ACCEPT: answers a call; everyone in it gets CALL_ACCEPTED. It joins
+  /// one that no longer rings the user the same way (CALL_ONGOING). The
+  /// caller's own answers nothing.
   bool acceptCall(String conversationId) =>
       _send('CALL_ACCEPT', {'conversation_id': conversationId});
 
-  /// CALL_DECLINE: turns a call down; its caller gets CALL_DECLINED, and the
-  /// call ends (CALL_ENDED) once everyone declined.
+  /// CALL_DECLINE: turns a call down on all of the user's devices: its caller
+  /// and each of the user's sessions get CALL_DECLINED, and the call ends
+  /// (CALL_ENDED) once every member but its caller declined.
   bool declineCall(String conversationId) =>
       _send('CALL_DECLINE', {'conversation_id': conversationId});
 
-  /// CALL_CANCEL: the caller hangs up before anyone answered; the call ends.
+  /// CALL_CANCEL: ends the call for everyone (CALL_ENDED). Its caller can, and
+  /// so can a member whose [initiateCall] answered it (calls that crossed)
+  /// while nobody else has accepted it; after that, theirs only takes their
+  /// voice out, as [leaveCall] does.
   bool cancelCall(String conversationId) =>
       _send('CALL_CANCEL', {'conversation_id': conversationId});
 

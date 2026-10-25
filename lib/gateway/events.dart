@@ -162,6 +162,10 @@ mixin GatewayEvents {
 
   Stream<CallIncomingPayloadEvent> get onCallIncoming =>
       onEvent.whereType<CallIncomingPayloadEvent>();
+  Stream<CallOutgoingPayloadEvent> get onCallOutgoing =>
+      onEvent.whereType<CallOutgoingPayloadEvent>();
+  Stream<CallOngoingPayloadEvent> get onCallOngoing =>
+      onEvent.whereType<CallOngoingPayloadEvent>();
   Stream<CallAcceptedEvent> get onCallAccept =>
       onEvent.whereType<CallAcceptedEvent>();
   Stream<CallDeclinedEvent> get onCallDecline =>

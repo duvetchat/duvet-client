@@ -155,6 +155,10 @@ class GatewayEnvelope {
         return DMRecordingStartedEvent(DMTypingEvent.fromJson(d));
       case 'CALL_INCOMING':
         return CallIncomingPayloadEvent(CallIncomingEvent.fromJson(d));
+      case 'CALL_OUTGOING':
+        return CallOutgoingPayloadEvent(CallOutgoingEvent.fromJson(d));
+      case 'CALL_ONGOING':
+        return CallOngoingPayloadEvent(CallOngoingEvent.fromJson(d));
       case 'CALL_ACCEPTED':
         return CallAcceptedEvent(CallResponseEvent.fromJson(d));
       case 'CALL_DECLINED':

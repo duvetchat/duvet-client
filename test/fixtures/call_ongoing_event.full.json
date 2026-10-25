@@ -1,0 +1,14 @@
+{
+  "conversation_id": "s-string",
+  "initiator_id": "s-string",
+  "voice_states": [
+    {
+      "user_id": "s-string",
+      "muted": true,
+      "deafened": true,
+      "screen_sharing": true,
+      "camera": true,
+      "version": 2
+    }
+  ]
+}

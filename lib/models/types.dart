@@ -1482,20 +1482,46 @@ class IceServer {
 class GatewayReadyActiveCall {
   final String conversationId;
   final String initiatorId;
+
+  /// The caller's name and avatar, as CALL_INCOMING carries them, so a call
+  /// that rings can be shown from READY. Null from a gateway that doesn't
+  /// send them.
+  final String? initiatorName;
+  final String? initiatorAvatar;
   final List<CallVoiceState>? voiceStates;
+
+  /// Whether the call still rings for this user: it rang them, its ring
+  /// window hasn't passed, and they haven't accepted or declined it on any
+  /// device, nor are in its voice. False for their own call, and for one
+  /// that goes on without ringing them (as after CALL_ONGOING). Null from a
+  /// gateway that doesn't say.
+  final bool? ringing;
+
+  /// Whether someone other than its caller has accepted the call, even if
+  /// they've left it since, so the caller's devices tell their call still
+  /// ringing from their call answered. Null from a gateway that doesn't say.
+  final bool? answered;
 
   const GatewayReadyActiveCall({
     required this.conversationId,
     required this.initiatorId,
+    this.initiatorName,
+    this.initiatorAvatar,
     this.voiceStates,
+    this.ringing,
+    this.answered,
   });
 
   GatewayReadyActiveCall.fromJson(Map<String, dynamic> j)
       : conversationId = j['conversation_id'] as String,
         initiatorId = j['initiator_id'] as String,
+        initiatorName = j['initiator_name'] as String?,
+        initiatorAvatar = j['initiator_avatar'] as String?,
         voiceStates = (j['voice_states'] as List<dynamic>?)
             ?.map((e) => CallVoiceState.fromJson(e as Map<String, dynamic>))
-            .toList();
+            .toList(),
+        ringing = j['ringing'] as bool?,
+        answered = j['answered'] as bool?;
 }
 
 class GatewayReadyData {
@@ -2295,6 +2321,43 @@ class CallEndedEvent {
       : conversationId = j['conversation_id'] as String;
 }
 
+/// CALL_OUTGOING: a call the user started, sent to each of their sessions,
+/// the one that started it included. It rings none of them: an app shows a
+/// call going on in that conversation, as for a call READY lists with
+/// `ringing` false.
+class CallOutgoingEvent {
+  final String conversationId;
+  const CallOutgoingEvent({required this.conversationId});
+  CallOutgoingEvent.fromJson(Map<String, dynamic> j)
+      : conversationId = j['conversation_id'] as String;
+}
+
+/// CALL_ONGOING: a call goes on in one of the user's conversations without
+/// ringing them, because its ring window ended before they answered, or they
+/// became one of its members during it (added to the group, say). It stops
+/// ringing, if it did, and they can still join it with CALL_ACCEPT.
+class CallOngoingEvent {
+  final String conversationId;
+  final String initiatorId;
+
+  /// Who is in the call's voice, as READY's calls carry them: null while
+  /// nobody is.
+  final List<CallVoiceState>? voiceStates;
+
+  const CallOngoingEvent({
+    required this.conversationId,
+    required this.initiatorId,
+    this.voiceStates,
+  });
+
+  CallOngoingEvent.fromJson(Map<String, dynamic> j)
+      : conversationId = j['conversation_id'] as String,
+        initiatorId = j['initiator_id'] as String,
+        voiceStates = (j['voice_states'] as List<dynamic>?)
+            ?.map((e) => CallVoiceState.fromJson(e as Map<String, dynamic>))
+            .toList();
+}
+
 /// FRIEND_REQUEST_REJECT: the request, rejected by its recipient or cancelled
 /// by its sender.
 class FriendRequestRejectEvent {
@@ -2750,6 +2813,16 @@ class CallDeclinedEvent extends GatewayEventPayload {
 class CallEndedPayloadEvent extends GatewayEventPayload {
   final CallEndedEvent data;
   const CallEndedPayloadEvent(this.data);
+}
+
+class CallOutgoingPayloadEvent extends GatewayEventPayload {
+  final CallOutgoingEvent data;
+  const CallOutgoingPayloadEvent(this.data);
+}
+
+class CallOngoingPayloadEvent extends GatewayEventPayload {
+  final CallOngoingEvent data;
+  const CallOngoingPayloadEvent(this.data);
 }
 
 class MessagePinUpdatedEvent extends GatewayEventPayload {
