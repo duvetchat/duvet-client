@@ -6,7 +6,12 @@ export 'package:duvet_client/http/ack.dart' show ackInterval;
 export 'package:duvet_client/http/send.dart' show defaultRequestTimeout;
 export 'package:duvet_client/errors.dart';
 export 'package:duvet_client/gateway/client.dart'
-    show GatewayClient, GatewayConnectionState, defaultConnectTimeout;
+    show
+        GatewayClient,
+        GatewayConnectionState,
+        GatewayConnectFailure,
+        GatewayResume,
+        defaultConnectTimeout;
 export 'package:duvet_client/gateway/manager.dart' show GatewayManager;
 export 'package:duvet_client/gateway/webrtc_controller.dart'
     show WebRTCController, VoiceParticipant, VoiceStates;

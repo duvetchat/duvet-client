@@ -12,19 +12,86 @@ import 'package:duvet_client/errors.dart';
 /// dropped: 15 seconds.
 const defaultConnectTimeout = Duration(seconds: 15);
 
+const _firstReconnectDelay = Duration(seconds: 1);
+const _maxReconnectDelay = Duration(seconds: 30);
+const _reconnectJitter = Duration(seconds: 1);
+final _random = Random();
+
+/// How long the client waits before it opens another socket, after [failed]
+/// attempts in a row failed to open one (none when an open socket dropped),
+/// as the desktop app waits: a second, doubling with each failure, up to
+/// 30, plus up to a second at random, so that clients don't all come back
+/// at once.
+Duration reconnectDelay(int failed, [Random? random]) {
+  // From 2^5 seconds on it's the cap: a higher power would only overflow.
+  final doubled = _firstReconnectDelay * (1 << min(failed, 5));
+  final base = doubled < _maxReconnectDelay ? doubled : _maxReconnectDelay;
+  return base +
+      Duration(
+          microseconds:
+              (random ?? _random).nextInt(_reconnectJitter.inMicroseconds));
+}
+
+/// An attempt to open a socket to the gateway that failed:
+/// [GatewayClient.onConnectFailure].
+class GatewayConnectFailure {
+  /// The shard that tried: 0 without sharding.
+  final int shardId;
+
+  /// How many attempts in a row failed, this one included, since a socket
+  /// last opened: 1 for the first.
+  final int failures;
+
+  /// The HTTP status the gateway refused the upgrade with: 401 for a token it
+  /// doesn't know (the session ended, or the token expired), 503 while it
+  /// can't check tokens yet (its Redis restarted, and the API hasn't cached
+  /// them again), or a proxy's while the gateway is down (502). Null when no
+  /// answer came: no network, or [GatewayClient.connectTimeout].
+  final int? httpStatus;
+
+  /// What stopped it, as [GatewayClient.connect] throws it: with the token
+  /// masked.
+  final Object error;
+
+  const GatewayConnectFailure(
+      {this.shardId = 0,
+      required this.failures,
+      this.httpStatus,
+      required this.error});
+
+  @override
+  String toString() =>
+      'GatewayConnectFailure(shard $shardId, $failures, $httpStatus: $error)';
+}
+
+/// The gateway resumed a shard's session on a new socket:
+/// [GatewayClient.onResume].
+class GatewayResume {
+  /// The shard whose session it is: 0 without sharding.
+  final int shardId;
+
+  const GatewayResume({this.shardId = 0});
+
+  @override
+  String toString() => 'GatewayResume(shard $shardId)';
+}
+
 /// Where a gateway connection is.
 enum GatewayConnectionState {
   /// Opening the first socket.
   connecting,
 
-  /// A socket is open and the client identified on it; READY follows.
+  /// A socket is open and the client identified on it; READY follows, or,
+  /// when the gateway resumes the session, the events it missed and
+  /// [GatewayClient.onResume].
   connected,
 
   /// The socket closed, or couldn't open, and the client is opening another.
   reconnecting,
 
   /// No socket, and none opening: before connecting, after a
-  /// [GatewayClient.connect] that failed with nothing trying again, or once
+  /// [GatewayClient.connect] that failed with nothing trying again, after the
+  /// gateway refused the shard ([GatewayCloseCode.invalidShard]), or once
   /// destroyed.
   disconnected,
 }
@@ -38,14 +105,43 @@ enum GatewayConnectionState {
 /// It keeps one socket at a time: a new one opens only once the last is
 /// closed, and opening one takes [connectTimeout] at most. When the socket
 /// drops, or stops answering heartbeats, it opens a new one and identifies
-/// again, until [destroy].
+/// again, until [destroy]: a second after the drop, and longer after each
+/// attempt that fails, up to 30 seconds ([reconnectDelay]).
+///
+/// ### Resuming
+/// Each identify starts a new session, which READY begins, unless [resume]
+/// is on. Then a socket that replaces one that dropped asks the gateway to
+/// resume its session (READY's `sessionToken` and the last sequence number
+/// heard), as the desktop app does. The gateway keeps a dropped session for
+/// 30 seconds from when it notices the drop, with its last 500 events:
+///
+/// * when it resumes it, it sends the events the session got after the last
+///   one heard, each with its own sequence number, then the new ones, and no
+///   READY. The session goes on: its token, its voice and calls. The client
+///   tells it by [onResume], after those events.
+/// * when it can't (it hasn't noticed the drop yet, the 30 seconds are over,
+///   more than 500 events are missing, or it restarted), it starts a new
+///   session and sends READY, as without [resume]: what the old session got
+///   meanwhile is lost.
+///
+/// The gateway says nothing when it resumes, so the client asks: it sends a
+/// heartbeat right after the identify. The gateway handles a socket's
+/// messages in order, so its answer comes after READY when it started a new
+/// session, and after the events it replayed when it resumed. One case reads
+/// wrong: when the gateway's identify fails after it took the socket (a
+/// Redis error as it builds READY), it sends nothing yet answers the
+/// heartbeat, which the client takes for a resume. The gateway is to close
+/// such a socket, as it does one whose identify it can't check, and then
+/// another opens.
 ///
 /// Parse or protocol errors are pushed to [errors]. Both streams remain
 /// open across reconnect cycles and only close when [destroy] is called.
 ///
-/// [shardId] and [shardCount] are forwarded in the IDENTIFY payload so the
-/// server can route traffic correctly once sharding is active. They default
-/// to shard 0-of-1 (i.e. no sharding) and can be ignored until then.
+/// A bot with more than one shard sends its [shardId] and [shardCount] in the
+/// identify: the gateway then gives each shard the spaces whose
+/// `fnv32a(space ID) % shardCount` is its [shardId], and their events. With
+/// one shard, as by default, the client sends neither: the gateway gives a
+/// bot shard 0 of 1, and closes a person's socket that sends them (4000).
 class GatewayClient {
   final RestClient api;
 
@@ -55,6 +151,11 @@ class GatewayClient {
   /// How long opening a socket may take before the attempt fails with a
   /// [TimeoutException] ([defaultConnectTimeout]).
   final Duration connectTimeout;
+
+  /// Whether a socket that replaces one that dropped resumes its session
+  /// (see "Resuming" above), as the desktop app does. Off, as by default,
+  /// each socket starts a new session, with READY.
+  final bool resume;
 
   /// Broadcast stream of every decoded [GatewayEventPayload] received from
   /// the gateway, including the initial [ReadyEvent].
@@ -75,16 +176,46 @@ class GatewayClient {
   Stream<GatewayConnectionState> get onConnectionState =>
       _stateController.stream;
 
+  /// Broadcast stream that fires when the gateway resumed the session on a
+  /// new socket ([resume]): the session is live again, as on a READY. The
+  /// events it missed came before, on [events]; no READY comes. A socket
+  /// whose session the gateway couldn't resume gets READY instead.
+  Stream<GatewayResume> get onResume => _resumeController.stream;
+
+  /// Broadcast stream of the reasons the gateway gives before it closes the
+  /// socket: [GatewayCloseCode]. The client opens another one, as after any
+  /// drop, but after [GatewayCloseCode.invalidShard]: the same options would
+  /// be refused again, so it stops, [GatewayConnectionState.disconnected],
+  /// until [connect]. After [GatewayCloseCode.invalidCredentials], a socket
+  /// with the same token fails again: ask the API about the session, as the
+  /// desktop app does.
+  Stream<GatewayCloseReason> get onCloseReason => _closeController.stream;
+
+  /// Broadcast stream of the attempts to open a socket that failed, each with
+  /// how many failed in a row and the HTTP status the gateway refused it
+  /// with, when it answered: [GatewayConnectFailure]. The client tries again
+  /// all the same, after [reconnectDelay].
+  ///
+  /// A token that stopped working is refused at the upgrade (401), not
+  /// closed (4004): ask the API about the session then, which renews the
+  /// token or ends the session. The desktop app, which can't see the status,
+  /// asks on the first failure and every 5th after it
+  /// (`RECONNECTS_PER_SESSION_CHECK`): failures 1, 6, 11…
+  Stream<GatewayConnectFailure> get onConnectFailure =>
+      _failureController.stream;
+
   /// The connection's state now.
   GatewayConnectionState get connectionState => _state;
 
   /// The number of the socket open now (they're counted from 1 as they open),
   /// or null while none is: a message sent then would be lost.
   ///
-  /// What's sent on a socket reaches the session its identify started, and the
-  /// client never resumes one: each socket that opens gets a READY. So a
-  /// message sent on the socket a READY came on went out after it, in that
-  /// session; one sent on an earlier socket belongs to an earlier session.
+  /// What's sent on a socket reaches the session its identify started, or
+  /// the one it resumed ([resume], [onResume]). Without [resume] each socket
+  /// that opens gets a READY, so a message sent on the socket a READY came on
+  /// went out after it, in that session; one sent on an earlier socket
+  /// belongs to an earlier session. With it, a socket that resumed carries
+  /// on the session of the sockets before it, back to its READY.
   int? get connection =>
       _socket?.readyState == WebSocket.open ? _connections : null;
 
@@ -111,6 +242,31 @@ class GatewayClient {
   int _reconnectAttempts = 0;
   int _lastSeq = 0;
 
+  // The session to resume: the last READY's sessionToken, which a resume
+  // keeps.
+  String? _sessionToken;
+
+  // Set by wantFreshSession until a READY comes.
+  bool _freshSessionWanted = false;
+
+  // The open socket's identify asked to resume, and neither READY nor the
+  // first heartbeat ack has said yet whether the gateway did.
+  bool _resuming = false;
+
+  // The heartbeat sent right after a resuming identify waits for its ack.
+  bool _probing = false;
+
+  // The sequence number a resuming identify sent.
+  int _resumedFrom = 0;
+
+  // The gateway refused the shard (4000): no socket opens on its own until
+  // connect().
+  bool _stopped = false;
+
+  // The attempts to open a socket that failed in a row: see
+  // [onConnectFailure].
+  int _failures = 0;
+
   // The sockets that opened, counted: see [connection].
   int _connections = 0;
 
@@ -133,9 +289,17 @@ class GatewayClient {
   final StreamController<GatewayConnectionState> _stateController =
       StreamController<GatewayConnectionState>.broadcast();
 
+  final StreamController<GatewayResume> _resumeController =
+      StreamController<GatewayResume>.broadcast();
+
+  final StreamController<GatewayCloseReason> _closeController =
+      StreamController<GatewayCloseReason>.broadcast();
+
+  final StreamController<GatewayConnectFailure> _failureController =
+      StreamController<GatewayConnectFailure>.broadcast();
+
   static const Duration _heartbeatInterval = Duration(seconds: 45);
   static const Duration _heartbeatAckTimeout = Duration(seconds: 15);
-  static const Duration _maxReconnectDelay = Duration(milliseconds: 2500);
 
   final ApiRouter router;
   String get _wsHost => router.getCustomApiUrl(protocol: 'ws');
@@ -149,6 +313,7 @@ class GatewayClient {
     void Function(String msg)? log,
     ApiRouter? router,
     this.connectTimeout = defaultConnectTimeout,
+    this.resume = false,
   })  : _log = log ?? ((msg) => print('[gateway:shard-$shardId] $msg')),
         router = router ?? const ApiRouter();
 
@@ -182,6 +347,7 @@ class GatewayClient {
     if (_destroyed) {
       throw StateError('Shard $shardId is destroyed — cannot connect.');
     }
+    _stopped = false;
     final attempt = ++_attempt;
     _closeSocket();
     if (_state != GatewayConnectionState.reconnecting) {
@@ -205,11 +371,23 @@ class GatewayClient {
       if (_destroyed) {
         throw StateError('Shard $shardId was destroyed while connecting.');
       }
+      final masked = _masked(e);
+      // Not one a newer attempt replaced.
+      if (attempt == _attempt) {
+        _failures++;
+        if (!_failureController.isClosed) {
+          _failureController.add(GatewayConnectFailure(
+              shardId: shardId,
+              failures: _failures,
+              httpStatus: e is WebSocketException ? e.httpStatusCode : null,
+              error: masked));
+        }
+      }
       // Unless [reconnect] is trying, nothing is.
       if (_reconnecting == null) {
         _setState(GatewayConnectionState.disconnected);
       }
-      Error.throwWithStackTrace(_masked(e), st);
+      Error.throwWithStackTrace(masked, st);
     } finally {
       if (identical(_opening, http)) _opening = null;
     }
@@ -229,6 +407,7 @@ class GatewayClient {
     _socket = socket;
     _connections++;
     _reconnectAttempts = 0;
+    _failures = 0;
     socket.listen(
       (raw) {
         if (identical(socket, _socket)) _onMessage(raw);
@@ -250,8 +429,9 @@ class GatewayClient {
   }
 
   /// Closes the socket, if one is open, and opens a new one: after a delay
-  /// that grows with each failed attempt, it tries until a socket opens or the
-  /// client is destroyed. Calls while it's trying share that attempt.
+  /// that grows with each failed attempt ([reconnectDelay]), it tries until a
+  /// socket opens or the client is destroyed. Calls while it's trying share
+  /// that attempt.
   Future<void> reconnect() {
     if (_destroyed) return Future.value();
     return _reconnecting ??= _reconnectLoop();
@@ -262,7 +442,7 @@ class GatewayClient {
       while (!_destroyed) {
         _closeSocket();
         _setState(GatewayConnectionState.reconnecting);
-        final delay = _reconnectDelay();
+        final delay = reconnectDelay(_reconnectAttempts);
         _log('reconnecting in ${delay.inMilliseconds}ms '
             '(attempt ${_reconnectAttempts + 1})');
         // A wait destroy() can end early.
@@ -273,6 +453,8 @@ class GatewayClient {
         await wait.future;
         timer.cancel();
         if (_destroyed) return;
+        // The app opened one meanwhile ([connect]): that's the one kept.
+        if (connection != null) return;
         _reconnectAttempts++;
         try {
           await connect();
@@ -289,15 +471,32 @@ class GatewayClient {
     }
   }
 
-  // The socket closed, or stopped answering: a new one opens.
+  // The socket closed, or stopped answering: a new one opens, unless the
+  // gateway refused the shard, which another socket would be as well.
   void _dropped(String why) {
     _log(why);
     _closeSocket();
-    if (!_destroyed) unawaited(reconnect());
+    if (_destroyed) return;
+    if (_stopped) {
+      _log('not reconnecting: the gateway refused the shard');
+      _setState(GatewayConnectionState.disconnected);
+      return;
+    }
+    unawaited(reconnect());
   }
 
   void _closeSocket() {
     _stopHeartbeat();
+    _probing = false;
+    if (_resuming) {
+      // Gone before the gateway said whether it resumed the session. What
+      // came on this socket may have been a new session's, whose sequence
+      // numbers would resume the old one at the wrong place: then the next
+      // socket starts a new one. When nothing moved the sequence number, the
+      // next socket resumes from where this one asked to.
+      _resuming = false;
+      if (_lastSeq != _resumedFrom) _sessionToken = null;
+    }
     final socket = _socket;
     if (socket == null) return;
     _socket = null;
@@ -319,19 +518,20 @@ class GatewayClient {
   }
 
   // [e] with the token masked: a failed handshake's error carries the URL,
-  // query and all.
+  // query and all. A refusal keeps its status.
   Object _masked(Object e) => switch (e) {
-        WebSocketException(:final message) =>
-          WebSocketException(_mask(message)),
+        WebSocketException(:final message, :final httpStatusCode) =>
+          WebSocketException(_mask(message), httpStatusCode),
         HttpException(:final message, :final uri) => HttpException(
             _mask(message),
             uri: uri == null ? null : Uri.parse(_mask('$uri'))),
         _ => e,
       };
 
-  /// Permanently shuts down this client. The [events], [errors] and
-  /// [onConnectionState] streams are closed and the socket is disconnected;
-  /// no other one opens. Do not reuse after calling this.
+  /// Permanently shuts down this client. The [events], [errors],
+  /// [onConnectionState], [onResume], [onCloseReason] and [onConnectFailure]
+  /// streams are closed and the socket is disconnected; no other one opens.
+  /// Do not reuse after calling this.
   void destroy() {
     if (_destroyed) return;
     _destroyed = true;
@@ -344,7 +544,30 @@ class GatewayClient {
     _eventController.close();
     _errorController.close();
     _stateController.close();
+    _resumeController.close();
+    _closeController.close();
+    _failureController.close();
     _log('destroyed');
+  }
+
+  /// Makes the next identify start a new session, with READY, rather than
+  /// resume this one ([resume]); until a READY comes. The desktop app asks
+  /// for one when voice has to join while no socket is open: it joins on the
+  /// next session's READY, which a resume doesn't send, and a resume would
+  /// replay what the earlier sockets were sent.
+  void wantFreshSession() => _freshSessionWanted = true;
+
+  /// Ends the wait before the next attempt to open a socket
+  /// ([reconnectDelay]), if the client is waiting, so that it tries now: say
+  /// when the app comes back to the foreground. Answers whether it was
+  /// waiting. A wait after a failure still grows as before. A client stopped
+  /// after [GatewayCloseCode.invalidShard] isn't waiting: [connect] starts it
+  /// again.
+  bool retryNow() {
+    final wait = _reconnectWait;
+    if (_destroyed || wait == null || wait.isCompleted) return false;
+    wait.complete();
+    return true;
   }
 
   /// Sends an arbitrary event message to the gateway, and answers whether it
@@ -410,43 +633,93 @@ class GatewayClient {
   }
 
   void _handleHeartbeatAck() {
+    if (_resuming) {
+      // The first ack since the identify that asked to resume, and no READY
+      // before it: the gateway resumed the session, and what it replayed
+      // came first.
+      _resuming = false;
+      _log('session resumed (seq=$_lastSeq)');
+      if (!_resumeController.isClosed) {
+        _resumeController.add(GatewayResume(shardId: shardId));
+      }
+    }
+    if (_probing) {
+      // The heartbeat sent with the identify: a periodic one may still wait
+      // for its own ack.
+      _probing = false;
+      return;
+    }
     _awaitingHeartbeatAck = false;
     _heartbeatAckTimer?.cancel();
     _log('♥ ack');
   }
 
   void _identify() {
+    final session = _sessionToken;
+    final resuming =
+        resume && session != null && _lastSeq > 0 && !_freshSessionWanted;
     final data = <String, dynamic>{
       'token': token,
       if (_lastSeq > 0) 'last_seq': _lastSeq,
+      if (resuming) 'session_token': session,
+      // Only to shard: see the class's doc.
+      if (shardCount > 1) ...{'shard_id': shardId, 'num_shards': shardCount},
     };
-    _send({'type': 'identify', 'data': data});
-    _log('identify sent (shard=$shardId/$shardCount, seq=$_lastSeq)');
+    final sent = _send({'type': 'identify', 'data': data});
+    _log('identify sent (shard=$shardId/$shardCount, seq=$_lastSeq'
+        '${resuming ? ', resuming' : ''})');
+    if (resuming && sent) {
+      // Its ack comes after READY when the gateway starts a new session
+      // instead, and after the events it replays when it resumes this one:
+      // an ack with no READY before it says the gateway resumed.
+      _resuming = true;
+      _resumedFrom = _lastSeq;
+      _probing = _send({'type': 'heartbeat', 'data': <String, dynamic>{}});
+    }
   }
 
   void _onMessage(dynamic raw) {
     final now = DateTime.now();
-    final last = _lastHeardAt;
-    final silence = last == null ? Duration.zero : now.difference(last);
-    _lastHeardAt = now;
     try {
       final decoded = jsonDecode(raw as String) as Map<String, dynamic>;
 
       final String type = decoded['event'] as String? ?? '';
+      if (type.toLowerCase() == 'close-with-reason') {
+        // It doesn't count as hearing from the gateway (silenceBeforeReady):
+        // a refused identify after a sleep would hide how long it lasted.
+        final close = GatewayCloseReason.fromJson(decoded, shardId: shardId);
+        _log('the gateway closes the socket: ${close.code} ${close.reason}');
+        // The same shard options would be refused again.
+        if (close.code == GatewayCloseCode.invalidShard) _stopped = true;
+        if (!_closeController.isClosed) _closeController.add(close);
+        return;
+      }
+
+      final last = _lastHeardAt;
+      final silence = last == null ? Duration.zero : now.difference(last);
+      _lastHeardAt = now;
       if (type.toUpperCase() == 'HEARTBEAT_ACK') {
         _handleHeartbeatAck();
         return;
       }
 
       final envelope = GatewayEnvelope.fromJson(decoded);
-      _lastSeq = envelope.s;
+      // Only from a frame with a sequence number, as the desktop app takes
+      // it: one without can't reset where a resume starts.
+      if (envelope.s > 0) _lastSeq = envelope.s;
 
       final payload = envelope.d;
       if (payload == null) {
         _log('warning: received event with null payload (type=$type)');
         return;
       }
-      if (payload is ReadyEvent) _silenceBeforeReady = silence;
+      if (payload is ReadyEvent) {
+        _silenceBeforeReady = silence;
+        // A new session, which says how a resuming identify went.
+        _sessionToken = payload.data.sessionToken;
+        _freshSessionWanted = false;
+        _resuming = false;
+      }
 
       if (!_eventController.isClosed) {
         _eventController.add(payload);
@@ -462,12 +735,5 @@ class GatewayClient {
         _errorController.add(DuvetMalformedMessageException(e));
       }
     }
-  }
-
-  Duration _reconnectDelay() {
-    final jitter = Random(token.hashCode).nextInt(500);
-    final base = min(500 * pow(2, _reconnectAttempts).toInt(),
-        _maxReconnectDelay.inMilliseconds);
-    return Duration(milliseconds: base + jitter);
   }
 }

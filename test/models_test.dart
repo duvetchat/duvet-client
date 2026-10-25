@@ -132,6 +132,52 @@ void main() {
       };
       final m = GatewayMessage.fromJson({...full, 'referenced_message': ref});
       expect(m.referencedMessage!.messageId, 'm');
+      // An API from before mention_author.
+      expect(m.referencedMessage!.mentionAuthor, isFalse);
+    });
+
+    test('a reply says whether it mentions the author it replies to', () {
+      for (final name in ['message_create', 'message_response']) {
+        final mentions = GatewayMessage.fromJson(_load(name, 'full'));
+        expect(mentions.referencedMessage!.mentionAuthor, isTrue);
+        final silent = GatewayMessage.fromJson(
+            {..._load(name, 'partial'), 'room_id': 'r1'});
+        expect(silent.referencedMessage!.mentionAuthor, isFalse);
+      }
+    });
+
+    test('flags and interaction metadata, from the gateway and REST', () {
+      for (final name in [
+        'message_create',
+        'message_update',
+        'message_response'
+      ]) {
+        final m = GatewayMessage.fromJson(_load(name, 'full'));
+        expect(m.flags, 2, reason: name);
+        final meta = m.interactionMetadata!;
+        expect((
+          meta.type,
+          meta.user.username,
+          meta.name
+        ), (
+          2,
+          's-string',
+          's-string'
+        ), reason: name);
+        final none =
+            GatewayMessage.fromJson({..._load(name, 'nulls'), 'room_id': 'r1'});
+        expect(none.interactionMetadata, isNull, reason: name);
+      }
+    });
+
+    test('an ephemeral message, and a deferred one loading', () {
+      expect((MessageFlag.ephemeral, MessageFlag.loading), (64, 128));
+      final m = GatewayMessage.fromJson(
+          {...full, 'flags': MessageFlag.ephemeral | MessageFlag.loading});
+      expect(m.flags & MessageFlag.ephemeral, isNonZero);
+      expect(m.flags & MessageFlag.loading, isNonZero);
+      expect(m.flags & MessageFlag.isComponentsV2, isZero);
+      expect(GatewayMessage.fromJson(_without(full, 'flags')).flags, 0);
     });
 
     test('search', () {
@@ -237,6 +283,27 @@ void main() {
           _withNull(_load('conversation', 'full'), 'members'));
       expect(c.members, isEmpty);
     });
+
+    test('a member\'s and a DM\'s user: the whole public user, bio included',
+        () {
+      for (final user in [
+        ConversationMember.fromJson(_load('conversation_member_row', 'full'))
+            .user!,
+        DirectMessage.fromJson(_load('dm_message_create', 'full')).user!,
+      ]) {
+        expect((user.custom, user.flags, user.emailVerified),
+            ('s-string', 2, true));
+        final at = DateTime.utc(2026, 10, 22, 10, 0, 0, 123, 456);
+        expect((user.createdAt, user.updatedAt, user.deletedAt), (at, at, at));
+      }
+      final alive =
+          ConversationMember.fromJson(_load('conversation_member_row', 'nulls'))
+              .user!;
+      expect((alive.deletedAt, alive.emailVerified), (null, false));
+      // Without them: their defaults.
+      final bare = ConversationUser.fromJson({'id': 'u1', 'username': 'maya'});
+      expect((bare.custom, bare.flags, bare.createdAt), ('', 0, null));
+    });
   });
 
   group('gateway events', () {
@@ -307,6 +374,16 @@ void main() {
       'CALL_ACCEPTED': ('call_member_event', []),
       'CALL_DECLINED': ('call_member_event', []),
       'CALL_ENDED': ('call_ended_event', []),
+      'MESSAGE_PIN_UPDATE': ('message_pin_update_event', []),
+      'DM_MESSAGE_PIN_UPDATE': ('dm_message_pin_update_event', []),
+      // The API's Recording and DMRecording are Typing and DMTyping.
+      'RECORDING': ('typing_event', []),
+      'DM_RECORDING': ('dm_typing_event', []),
+      'ROOM_REORDER': ('room_reorder_event', []),
+      'USER_ACTIVITY_UPDATE': ('user_activity_update_event', []),
+      'TEAM_INVITE_CREATE': ('team_invite_create_event', []),
+      'VOICE_VIDEO_REFUSED': ('voice_video_refused_event', []),
+      'STORAGE_TRANSFER_UPDATE': ('storage_transfer_update_event', []),
     };
 
     // Handled by the client, but neither the API nor the gateway sends them.
@@ -339,6 +416,199 @@ void main() {
       }
     }
 
+    test('the events added after 1.0.1 are their own, no UnknownEvents', () {
+      // A breaking change: they came as UnknownEvents, and a switch over
+      // GatewayEventPayload with no default case has to handle them now.
+      const added = <String, (String, Type)>{
+        'MESSAGE_PIN_UPDATE': (
+          'message_pin_update_event',
+          MessagePinUpdatedEvent
+        ),
+        'DM_MESSAGE_PIN_UPDATE': (
+          'dm_message_pin_update_event',
+          DMMessagePinUpdatedEvent
+        ),
+        'RECORDING': ('typing_event', RecordingStartedEvent),
+        'DM_RECORDING': ('dm_typing_event', DMRecordingStartedEvent),
+        'ROOM_REORDER': ('room_reorder_event', RoomReorderedEvent),
+        'USER_ACTIVITY_UPDATE': (
+          'user_activity_update_event',
+          UserActivityUpdatedEvent
+        ),
+        'TEAM_INVITE_CREATE': (
+          'team_invite_create_event',
+          TeamInviteCreatedEvent
+        ),
+        'VOICE_VIDEO_REFUSED': (
+          'voice_video_refused_event',
+          VoiceVideoRefusedPayloadEvent
+        ),
+        'STORAGE_TRANSFER_UPDATE': (
+          'storage_transfer_update_event',
+          StorageTransferUpdatedEvent
+        ),
+      };
+      for (final MapEntry(key: type, value: (name, event)) in added.entries) {
+        final e = dispatch(type, _load(name, 'full'));
+        expect(e.runtimeType, event, reason: type);
+        expect(e, isNot(isA<UnknownEvent>()), reason: type);
+      }
+    });
+
+    test('MESSAGE_PIN_UPDATE: the message, and when it was pinned', () {
+      final json = _load('message_pin_update_event', 'full');
+      final pinned =
+          dispatch('MESSAGE_PIN_UPDATE', json) as MessagePinUpdatedEvent;
+      expect(
+          (pinned.data.id, pinned.data.roomId), (json['id'], json['room_id']));
+      expect(
+          pinned.data.pinnedAt, DateTime.utc(2026, 10, 22, 10, 0, 0, 123, 456));
+      final unpinned = dispatch(
+              'MESSAGE_PIN_UPDATE', _load('message_pin_update_event', 'nulls'))
+          as MessagePinUpdatedEvent;
+      expect(unpinned.data.pinnedAt, isNull);
+    });
+
+    test('DM_MESSAGE_PIN_UPDATE: the message, and when it was pinned', () {
+      final json = _load('dm_message_pin_update_event', 'full');
+      final pinned =
+          dispatch('DM_MESSAGE_PIN_UPDATE', json) as DMMessagePinUpdatedEvent;
+      expect((pinned.data.id, pinned.data.conversationId),
+          (json['id'], json['conversation_id']));
+      expect(pinned.data.pinnedAt, isNotNull);
+      final unpinned = dispatch('DM_MESSAGE_PIN_UPDATE',
+              _load('dm_message_pin_update_event', 'nulls'))
+          as DMMessagePinUpdatedEvent;
+      expect(unpinned.data.pinnedAt, isNull);
+    });
+
+    test('RECORDING and DM_RECORDING: who records where, not typing', () {
+      final room = dispatch('RECORDING', {
+        'user_id': 'u2',
+        'username': 'maya',
+        'alias': 'Maya',
+        'avatar': null,
+        'room_id': 'r1',
+      });
+      expect(room, isA<RecordingStartedEvent>());
+      expect(room, isNot(isA<TypingStartedEvent>()));
+      final r = (room as RecordingStartedEvent).data;
+      expect((r.userId, r.username, r.alias, r.roomId),
+          ('u2', 'maya', 'Maya', 'r1'));
+
+      final dm = dispatch('DM_RECORDING', _load('dm_typing_event', 'nulls'))
+          as DMRecordingStartedEvent;
+      expect((dm.data.conversationId, dm.data.alias), ('s-string', null));
+      expect(dispatch('TYPING', _load('typing_event', 'full')),
+          isNot(isA<RecordingStartedEvent>()));
+    });
+
+    test('ROOM_REORDER: every room, with its position and parent', () {
+      final json = _load('room_reorder_event', 'full');
+      final e = dispatch('ROOM_REORDER', json) as RoomReorderedEvent;
+      final room = e.data.rooms.single;
+      final sent = (json['rooms'] as List).single as Map<String, dynamic>;
+      expect((room.id, room.spaceId, room.parentId, room.position),
+          (sent['id'], sent['space_id'], sent['parent_id'], 2));
+      final none =
+          dispatch('ROOM_REORDER', _load('room_reorder_event', 'nulls'))
+              as RoomReorderedEvent;
+      expect(none.data.rooms, isEmpty);
+    });
+
+    test('USER_ACTIVITY_UPDATE: the activities, none when cleared', () {
+      final e = dispatch('USER_ACTIVITY_UPDATE',
+              _load('user_activity_update_event', 'full'))
+          as UserActivityUpdatedEvent;
+      expect(e.data.userId, 's-string');
+      final a = e.data.activities.single;
+      expect(a.type, ActivityType.listening);
+      expect(
+          (a.name, a.details, a.state), ('s-string', 's-string', 's-string'));
+      expect((a.timestamps!.start, a.timestamps!.end), (2, 2));
+      expect((
+        a.assets!.largeImage,
+        a.assets!.largeText,
+        a.assets!.smallImage,
+        a.assets!.smallText,
+      ), (
+        's-string',
+        's-string',
+        's-string',
+        's-string'
+      ));
+
+      // Cleared: an empty list, or null.
+      final json = _load('user_activity_update_event', 'nulls');
+      for (final cleared in [json, _withNull(json, 'activities')]) {
+        final e = dispatch('USER_ACTIVITY_UPDATE', cleared)
+            as UserActivityUpdatedEvent;
+        expect(e.data.activities, isEmpty);
+      }
+    });
+
+    test('an activity as the gateway leaves it: playing, with a name alone',
+        () {
+      final a = Activity.fromJson({'name': 'Visual Studio Code'});
+      expect((a.type, a.name), (ActivityType.playing, 'Visual Studio Code'));
+      expect((a.details, a.state, a.timestamps, a.assets),
+          (null, null, null, null));
+    });
+
+    test('TEAM_INVITE_CREATE: the invite, as the list of them has it', () {
+      final json = _load('team_invite_create_event', 'full');
+      final e = dispatch('TEAM_INVITE_CREATE', json) as TeamInviteCreatedEvent;
+      expect((e.data.id, e.data.teamName, e.data.invitedByUsername),
+          (json['id'], json['team_name'], json['invited_by_username']));
+      expect(e.data.createdAt, DateTime.utc(2026, 10, 22, 10, 0, 0, 123, 456));
+    });
+
+    test('SPACE_CREATE: the members\' activities, none when left out', () {
+      final full = dispatch('SPACE_CREATE', _load('space_create_event', 'full'))
+          as SpaceCreateEvent;
+      final activity = full.data.activities['s-string']!.single;
+      expect(
+          (activity.type, activity.name), (ActivityType.listening, 's-string'));
+      // A bot's leaves them out.
+      final nulls =
+          dispatch('SPACE_CREATE', _load('space_create_event', 'nulls'))
+              as SpaceCreateEvent;
+      expect(nulls.data.activities, isEmpty);
+    });
+
+    test('SPACE_MEMBER_ADD: who joined, with their status and user', () {
+      final json = _load('space_member_add_event', 'full');
+      final added = dispatch('SPACE_MEMBER_ADD', json) as SpaceMemberAddedEvent;
+      expect((added.data.userId, added.data.memberId, added.data.spaceId),
+          (json['user_id'], json['member_id'], json['space_id']));
+      expect(added.data.statusId, UserStatus.dnd);
+      expect(added.data.user?.id, (json['user'] as Map)['id']);
+      // omitempty: the user when the API has it.
+      final bare =
+          dispatch('SPACE_MEMBER_ADD', _load('space_member_add_event', 'nulls'))
+              as SpaceMemberAddedEvent;
+      expect((bare.data.statusId, bare.data.user), (UserStatus.dnd, null));
+
+      final removed = dispatch(
+              'SPACE_MEMBER_REMOVE', _load('space_member_remove_event', 'full'))
+          as SpaceMemberRemovedEvent;
+      expect(removed.data.userId, isNotNull);
+      expect((removed.data.statusId, removed.data.user), (null, null));
+    });
+
+    test('USER_STATUS_UPDATE: a bot\'s carries its space; a person\'s none',
+        () {
+      final json = _load('user_status_update_event', 'full');
+      final bot =
+          dispatch('USER_STATUS_UPDATE', json) as UserStatusUpdatedEvent;
+      expect(bot.data.spaceId, json['space_id']);
+      final person = dispatch(
+              'USER_STATUS_UPDATE', _load('user_status_update_event', 'nulls'))
+          as UserStatusUpdatedEvent;
+      expect(
+          (person.data.spaceId, person.data.statusId), (null, UserStatus.dnd));
+    });
+
     test('READY: active_calls can be null; the session token is camelCase', () {
       final e = dispatch(
               'READY', _withNull(_load('ready_event', 'full'), 'active_calls'))
@@ -351,6 +621,19 @@ void main() {
       for (final json in _variants('bot_ready_event').values) {
         expect(dispatch('READY', json), isA<ReadyEvent>());
       }
+    });
+
+    test('READY: the spaces whose SPACE_CREATE follows', () {
+      for (final name in ['ready_event', 'bot_ready_event']) {
+        final full = dispatch('READY', _load(name, 'full')) as ReadyEvent;
+        expect(full.data.guildIds, ['s-string'], reason: name);
+        final none = dispatch('READY', _load(name, 'nulls')) as ReadyEvent;
+        expect(none.data.guildIds, isEmpty, reason: name);
+      }
+      final older =
+          dispatch('READY', _without(_load('ready_event', 'full'), 'guild_ids'))
+              as ReadyEvent;
+      expect(older.data.guildIds, isEmpty);
     });
 
     test('READY: the status the user chose; none from an older gateway', () {
@@ -371,6 +654,88 @@ void main() {
       final older =
           dispatch('USER_UPDATE', _without(json, 'custom')) as UserUpdatedEvent;
       expect(older.data.custom, isNull);
+    });
+
+    test('USER_UPDATE carries the flags and badges; an older API not', () {
+      final json = _load('user_update_event', 'full');
+      final e = dispatch('USER_UPDATE', json) as UserUpdatedEvent;
+      expect((e.data.flags, e.data.badges), (2, 2));
+      final older =
+          dispatch('USER_UPDATE', _without(_without(json, 'flags'), 'badges'))
+              as UserUpdatedEvent;
+      expect((older.data.flags, older.data.badges), (null, null));
+    });
+
+    test('CONVERSATION_UPDATE: the name and the owner', () {
+      final json = _load('conversation_update_event', 'full');
+      final e =
+          dispatch('CONVERSATION_UPDATE', json) as ConversationUpdatedEvent;
+      expect((e.data.id, e.data.name, e.data.ownerId),
+          (json['id'], json['name'], json['owner_id']));
+      final older = dispatch('CONVERSATION_UPDATE', _without(json, 'owner_id'))
+          as ConversationUpdatedEvent;
+      expect(older.data.ownerId, isNull);
+    });
+
+    test('FRIEND_REQUEST_ACCEPT: the new friend\'s status', () {
+      final json = _load('friend_request_accept_event', 'full');
+      final e =
+          dispatch('FRIEND_REQUEST_ACCEPT', json) as FriendRequestAcceptedEvent;
+      expect(e.data.statusId, UserStatus.dnd);
+      final older =
+          dispatch('FRIEND_REQUEST_ACCEPT', _without(json, 'status_id'))
+              as FriendRequestAcceptedEvent;
+      expect(older.data.statusId, isNull);
+    });
+
+    test('STORAGE_TRANSFER_UPDATE: the transfer as it is now', () {
+      final at = DateTime.utc(2026, 10, 22, 10, 0, 0, 123, 456);
+      final full = (dispatch('STORAGE_TRANSFER_UPDATE',
+                  _load('storage_transfer_update_event', 'full'))
+              as StorageTransferUpdatedEvent)
+          .data;
+      expect(full.status, StorageTransferStatus.done);
+      expect((full.keepSource, full.sameBucket, full.error),
+          (true, true, 's-string'));
+      expect((
+        full.totalFiles,
+        full.totalBytes,
+        full.movedFiles,
+        full.movedBytes,
+        full.skippedFiles,
+        full.failedFiles,
+      ), (
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ));
+      expect((full.createdAt, full.startedAt, full.finishedAt, full.updatedAt),
+          (at, at, at, at));
+      expect(full.sourceBucketId, isNotNull);
+      expect(full.targetBucketId, isNotNull);
+
+      // Null buckets, the default storage, and not started yet.
+      final queued = (dispatch('STORAGE_TRANSFER_UPDATE',
+                  _load('storage_transfer_update_event', 'nulls'))
+              as StorageTransferUpdatedEvent)
+          .data;
+      expect((queued.sourceBucketId, queued.targetBucketId), (null, null));
+      expect((queued.error, queued.startedAt, queued.finishedAt),
+          (null, null, null));
+      expect((
+        StorageTransferStatus.queued,
+        StorageTransferStatus.moving,
+        StorageTransferStatus.failed,
+        StorageTransferStatus.cancelled,
+      ), (
+        0,
+        1,
+        3,
+        4
+      ));
     });
 
     test('SPACE_CREATE: rooms and roles are maps by ID', () {
@@ -406,6 +771,29 @@ void main() {
 
     test('an event the client doesn\'t know', () {
       expect(dispatch('SOMETHING_NEW', {'a': 1}), isA<UnknownEvent>());
+    });
+
+    test('the reason the gateway closes a socket with', () {
+      // What session.go's SendCloseReason writes.
+      final close = GatewayCloseReason.fromJson({
+        'event': 'close-with-reason',
+        'code': 4004,
+        'reason': 'session ended'
+      });
+      expect((close.code, close.reason, close.shardId),
+          (GatewayCloseCode.invalidCredentials, 'session ended', 0));
+      // The client says which shard's socket it was.
+      expect(
+          GatewayCloseReason.fromJson({'code': 4000}, shardId: 3).shardId, 3);
+      expect((
+        GatewayCloseCode.invalidShard,
+        GatewayCloseCode.notIdentified,
+        GatewayCloseCode.alreadyIdentified,
+      ), (
+        4000,
+        4003,
+        4005
+      ));
     });
   });
 
@@ -585,6 +973,24 @@ void main() {
       final moved = dispatch('VOICE_SESSION_REPLACED', _without(json, 'reason'))
           as VoiceSessionReplacedPayloadEvent;
       expect((moved.data.roomId, moved.data.reason), ('s-string', null));
+    });
+
+    test('VOICE_VIDEO_REFUSED: which video, why, and the room\'s limit', () {
+      // As webrtc.go writes it when the room has its cameras on already.
+      final limit = dispatch('VOICE_VIDEO_REFUSED', {
+        'room_id': 'r1',
+        'kind': 'camera',
+        'reason': 'limit',
+        'limit': 8,
+      }) as VoiceVideoRefusedPayloadEvent;
+      expect((limit.data.roomId, limit.data.kind, limit.data.reason),
+          ('r1', 'camera', 'limit'));
+      expect(limit.data.limit, 8);
+      // omitempty: no limit for another reason.
+      final screen = dispatch('VOICE_VIDEO_REFUSED',
+              _load('voice_video_refused_event', 'nulls'))
+          as VoiceVideoRefusedPayloadEvent;
+      expect(screen.data.limit, isNull);
     });
 
     test('calls: incoming, accepted, declined, ended', () {

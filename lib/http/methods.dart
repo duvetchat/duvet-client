@@ -429,6 +429,10 @@ mixin RestMethods {
   /// Sends a message to the room. With [files], it goes as a multipart form,
   /// which carries no [embeds] or sticker.
   ///
+  /// A reply ([messageReference]) mentions the author of the message it
+  /// replies to, unless [allowedMentions] says otherwise
+  /// (`AllowedMentions(repliedUser: false)`).
+  ///
   /// [onProgress] gets the bytes of the request sent so far, and their total.
   /// Completing [abortTrigger] cancels the request: it then fails with an
   /// [http.RequestAbortedException].
@@ -437,6 +441,7 @@ mixin RestMethods {
     String content, {
     String? nonce,
     MessageReference? messageReference,
+    AllowedMentions? allowedMentions,
     List<File>? files,
     List<Embed>? embeds,
     String? stickerAttachmentId,
@@ -446,6 +451,7 @@ mixin RestMethods {
     final response = await _sendMessage('/api/rooms/$roomId/messages', content,
         nonce: nonce,
         messageReference: messageReference,
+        allowedMentions: allowedMentions,
         files: files,
         embeds: embeds,
         stickerAttachmentId: stickerAttachmentId,
@@ -1073,13 +1079,14 @@ mixin RestMethods {
   }
 
   /// Sends a message to the conversation. With [files], it goes as a
-  /// multipart form, which carries no [embeds] or sticker. [onProgress] and
-  /// [abortTrigger] work as [sendMessage]'s.
+  /// multipart form, which carries no [embeds] or sticker. [allowedMentions],
+  /// [onProgress] and [abortTrigger] work as [sendMessage]'s.
   Future<DirectMessage> sendDirectMessage(
     String conversationId,
     String content, {
     String? nonce,
     MessageReference? messageReference,
+    AllowedMentions? allowedMentions,
     List<File>? files,
     List<Embed>? embeds,
     String? stickerAttachmentId,
@@ -1090,6 +1097,7 @@ mixin RestMethods {
         '/api/users/@me/conversations/$conversationId/messages', content,
         nonce: nonce,
         messageReference: messageReference,
+        allowedMentions: allowedMentions,
         files: files,
         embeds: embeds,
         stickerAttachmentId: stickerAttachmentId,
@@ -1534,6 +1542,7 @@ mixin RestMethods {
     String content, {
     String? nonce,
     MessageReference? messageReference,
+    AllowedMentions? allowedMentions,
     List<File>? files,
     List<Embed>? embeds,
     String? stickerAttachmentId,
@@ -1547,6 +1556,9 @@ mixin RestMethods {
             if (nonce != null && nonce.isNotEmpty) 'nonce': nonce,
             if (messageReference != null)
               'message_reference': jsonEncode(messageReference.toJson()),
+            // A JSON string, as message_reference.
+            if (allowedMentions != null)
+              'allowed_mentions': jsonEncode(allowedMentions.toJson()),
           },
           files: [
             for (final f in files) await _filePart('files', f),
@@ -1560,6 +1572,8 @@ mixin RestMethods {
           if (nonce != null) 'nonce': nonce,
           if (messageReference != null)
             'message_reference': messageReference.toJson(),
+          if (allowedMentions != null)
+            'allowed_mentions': allowedMentions.toJson(),
           if (embeds != null && embeds.isNotEmpty)
             'embeds': embeds.map((e) => e.toJson()).toList(),
           if (stickerAttachmentId != null && stickerAttachmentId.isNotEmpty)

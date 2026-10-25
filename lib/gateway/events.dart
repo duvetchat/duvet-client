@@ -39,6 +39,8 @@ mixin GatewayEvents {
       onEvent.whereType<RoomUpdateEvent>();
   Stream<RoomDeletedEvent> get onRoomDelete =>
       onEvent.whereType<RoomDeletedEvent>();
+  Stream<RoomReorderedEvent> get onRoomReorder =>
+      onEvent.whereType<RoomReorderedEvent>();
 
   Stream<RoomOverwriteUpdateEvent> get onOverwriteUpdate =>
       onEvent.whereType<RoomOverwriteUpdateEvent>();
@@ -51,6 +53,8 @@ mixin GatewayEvents {
       onEvent.whereType<MessageUpdateEvent>();
   Stream<MessageDeletedEvent> get onMessageDelete =>
       onEvent.whereType<MessageDeletedEvent>();
+  Stream<MessagePinUpdatedEvent> get onMessagePinUpdate =>
+      onEvent.whereType<MessagePinUpdatedEvent>();
   Stream<MentionCreatedEvent> get onMentionCreate =>
       onEvent.whereType<MentionCreatedEvent>();
 
@@ -61,11 +65,19 @@ mixin GatewayEvents {
 
   Stream<TypingStartedEvent> get onTyping =>
       onEvent.whereType<TypingStartedEvent>();
+  Stream<RecordingStartedEvent> get onRecording =>
+      onEvent.whereType<RecordingStartedEvent>();
 
   Stream<UserUpdatedEvent> get onUserUpdate =>
       onEvent.whereType<UserUpdatedEvent>();
   Stream<UserStatusUpdatedEvent> get onUserStatusUpdate =>
       onEvent.whereType<UserStatusUpdatedEvent>();
+  Stream<UserActivityUpdatedEvent> get onUserActivityUpdate =>
+      onEvent.whereType<UserActivityUpdatedEvent>();
+  Stream<TeamInviteCreatedEvent> get onTeamInviteCreate =>
+      onEvent.whereType<TeamInviteCreatedEvent>();
+  Stream<StorageTransferUpdatedEvent> get onStorageTransferUpdate =>
+      onEvent.whereType<StorageTransferUpdatedEvent>();
 
   Stream<GuildMemberAddedEvent> get onMemberAdd =>
       onEvent.whereType<GuildMemberAddedEvent>();
@@ -106,12 +118,16 @@ mixin GatewayEvents {
       onEvent.whereType<DMMessageUpdatedEvent>();
   Stream<DMMessageDeletedEvent> get onDMDelete =>
       onEvent.whereType<DMMessageDeletedEvent>();
+  Stream<DMMessagePinUpdatedEvent> get onDMPinUpdate =>
+      onEvent.whereType<DMMessagePinUpdatedEvent>();
   Stream<DMReactionAddedEvent> get onDMReactionAdd =>
       onEvent.whereType<DMReactionAddedEvent>();
   Stream<DMReactionRemovedEvent> get onDMReactionRemove =>
       onEvent.whereType<DMReactionRemovedEvent>();
   Stream<DMTypingStartedEvent> get onDMTyping =>
       onEvent.whereType<DMTypingStartedEvent>();
+  Stream<DMRecordingStartedEvent> get onDMRecording =>
+      onEvent.whereType<DMRecordingStartedEvent>();
   Stream<DMMentionCreatedEvent> get onDMMentionCreate =>
       onEvent.whereType<DMMentionCreatedEvent>();
 
@@ -141,6 +157,8 @@ mixin GatewayEvents {
       onEvent.whereType<VoiceJoinedPayloadEvent>();
   Stream<VoiceSessionReplacedPayloadEvent> get onVoiceSessionReplaced =>
       onEvent.whereType<VoiceSessionReplacedPayloadEvent>();
+  Stream<VoiceVideoRefusedPayloadEvent> get onVoiceVideoRefused =>
+      onEvent.whereType<VoiceVideoRefusedPayloadEvent>();
 
   Stream<CallIncomingPayloadEvent> get onCallIncoming =>
       onEvent.whereType<CallIncomingPayloadEvent>();
@@ -158,5 +176,6 @@ mixin GatewayEvents {
   Stream<WebRTCRenegotiateAnswerEvent> get onRenegotiateAnswer =>
       onEvent.whereType<WebRTCRenegotiateAnswerEvent>();
 
+  /// The events this package doesn't parse.
   Stream<UnknownEvent> get onUnknown => onEvent.whereType<UnknownEvent>();
 }

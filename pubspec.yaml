@@ -5,7 +5,7 @@ repository: https://codeberg.org/yuzu/duvet-client
 homepage: https://github.com/duvetchat
  
 environment:
-  sdk: ">=3.0.0 <4.0.0"
+  sdk: ">=3.6.0 <4.0.0"
  
 dependencies:
   http: ^1.5.0

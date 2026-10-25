@@ -4,6 +4,27 @@ Bios and the do-not-disturb status, for the API and gateway versions that bring
 them (not deployed yet). Nothing breaks: an older server leaves the new fields
 out, and they read as null.
 
+Then what the desktop app has and this package lacked: the gateway events it
+dropped, resuming a dropped gateway session, the gateway's close reasons, the
+attempts to connect that fail, `allowed_mentions`, a bot's shards in identify,
+and the desktop app's wait between attempts to reconnect. **Breaking changes:**
+the events it dropped join the sealed `GatewayEventPayload`, and the package
+needs Dart 3.6 (see "Breaking changes"). Resuming is off unless asked for, and
+the new parameters and fields are optional.
+
+### Breaking changes
+
+- New events join the sealed `GatewayEventPayload`: `MessagePinUpdatedEvent`,
+  `DMMessagePinUpdatedEvent`, `RecordingStartedEvent`,
+  `DMRecordingStartedEvent`, `RoomReorderedEvent`, `UserActivityUpdatedEvent`,
+  `TeamInviteCreatedEvent`, `VoiceVideoRefusedPayloadEvent` and
+  `StorageTransferUpdatedEvent` (see "Added"). A `switch` over it without a
+  default case has to handle them, and they no longer come as `UnknownEvent`s:
+  code that read them by `type` and `rawData` has to match their own types.
+- **The package needs Dart 3.6** (it took 3.0): it reads the HTTP status of a
+  refused upgrade from `WebSocketException.httpStatusCode`, which dart:io has
+  since 3.6.
+
 ### Added
 
 - **Bios:** `updateUser(custom:)` sets the bio. The API trims it and takes
@@ -22,6 +43,133 @@ out, and they read as null.
   each friend (`status_id`), whether or not a space is shared with them, so an
   app can show it before USER_STATUS_UPDATE brings a change. Null from an API
   before it.
+- **Gateway events it dropped** (they came as `UnknownEvent`s):
+  - MESSAGE_PIN_UPDATE (`MessagePinUpdatedEvent`, a `MessagePinUpdateEvent`:
+    the message, its room, and `pinnedAt`, null once unpinned) and
+    DM_MESSAGE_PIN_UPDATE (`DMMessagePinUpdatedEvent`);
+  - RECORDING and DM_RECORDING (`RecordingStartedEvent` and
+    `DMRecordingStartedEvent`, with TYPING's and DM_TYPING's data);
+  - ROOM_REORDER (`RoomReorderedEvent`: every room of the space, with its
+    position and parent);
+  - USER_ACTIVITY_UPDATE (`UserActivityUpdatedEvent`: a user's activities,
+    none once cleared);
+  - TEAM_INVITE_CREATE (`TeamInviteCreatedEvent`, a `TeamInvite`).
+
+  `GatewayEvents` has `onMessagePinUpdate`, `onDMPinUpdate`, `onRecording`,
+  `onDMRecording`, `onRoomReorder`, `onUserActivityUpdate` and
+  `onTeamInviteCreate`. They're no longer `UnknownEvent`s: see "Breaking
+  changes".
+- **Activities:** `Activity` (`type`, `ActivityType.playing` or `listening`;
+  `name`, `details`, `state`, `timestamps` in Unix milliseconds, `assets`),
+  and SPACE_CREATE's `activities` (`GatewaySpaceCreatePayload.activities`):
+  what the members connected then are doing, by user ID, which
+  USER_ACTIVITY_UPDATE keeps current.
+- **Resuming the gateway session,** as the desktop app does:
+  `GatewayManager(resume: true)` (`GatewayClient` takes it too). A socket that
+  replaces one that dropped identifies with READY's `sessionToken`, as
+  `session_token`, and the last sequence number. The gateway keeps a dropped
+  session for 30 seconds from when it notices the drop, with its last 500
+  events:
+  - when it resumes it, it replays the events after that number, then sends
+    the new ones, and no READY: `onResume` (on the manager and the client)
+    gives a `GatewayResume`, with its `shardId`, after the replay. The gateway
+    gives no word of it, so the client sends a heartbeat with the identify:
+    its ack comes after the replay, or after READY when the gateway starts a
+    new session instead. (Not when the gateway's identify fails after it took
+    the socket, a Redis error: it then answers the heartbeat alone, which
+    reads as a resume. The gateway is to close such a socket.)
+  - when it can't, READY comes, as without `resume`.
+
+  The last sequence number comes only from events that carry one, as the
+  desktop app takes it. `wantFreshSession()` makes the next identify start a
+  new session, until a READY comes: the desktop app asks for one when voice
+  has to join while no socket is open, since it joins on READY. A socket that
+  closes before the gateway said whether it resumed is followed by a new
+  session when something on it moved the sequence number, as it may have been
+  a new session's, and by the same resume when nothing did. Off by default:
+  without it each socket gets a READY, which apps may wait for (the mobile
+  app's online state and voice do).
+- **The gateway's close reasons:** `onCloseReason`, on the manager and the
+  client, gets a `GatewayCloseReason` (`code`, `reason`, and the `shardId` of
+  its socket) for each `close-with-reason`, before the socket closes and
+  another one opens. `GatewayCloseCode` names the codes: `invalidShard`
+  (4000), `notIdentified` (4003), `invalidCredentials` (4004),
+  `alreadyIdentified` (4005). After 4000 no other socket opens, as the same
+  shard options would be refused again: the client stays
+  `GatewayConnectionState.disconnected` until the app calls `connect()`. On
+  4004 the desktop app asks the API about the session at once: a dead one
+  gets a 401, which signs out; a live one renews the token, which the next
+  socket uses.
+- **`allowed_mentions`:** `sendMessage` and `sendDirectMessage` take
+  `allowedMentions`. A reply mentions the author of the message it replies
+  to; `AllowedMentions(repliedUser: false)` sends one that doesn't. In a
+  multipart form it goes as a JSON string, as `message_reference` does.
+  `ReferencedMessage.mentionAuthor` says whether a reply mentions them (false
+  from an API before it).
+- `ConversationUser`, the user of conversation members and DMs, has
+  `custom` (the bio), `flags`, `emailVerified`, `createdAt`, `updatedAt` and
+  `deletedAt`: the API sends the whole public user there.
+- `SpaceMemberEvent.userId`, which SPACE_MEMBER_ADD and SPACE_MEMBER_REMOVE
+  carry, and SPACE_MEMBER_ADD's `statusId` and `user`.
+- `GatewayUserStatusUpdate.spaceId`: the space of a bot's status in a space;
+  null for a person's status, and for a bot's overall one.
+- `MessageFlag.ephemeral` (`1 << 6`): a bot's response only the person who
+  used the interaction sees. `flags` and `interactionMetadata` were parsed
+  already, on the gateway's messages and the API's.
+- VOICE_VIDEO_REFUSED (`VoiceVideoRefusedPayloadEvent`, a
+  `VoiceVideoRefusedEvent`: the room, the `kind` of video, camera or screen,
+  the `reason`, and with "limit" the room's `limit`): the gateway refused or
+  stopped the user's camera or screen, and only their session in voice hears
+  it. `GatewayEvents.onVoiceVideoRefused`, and
+  `WebRTCController.onVoiceVideoRefused`.
+- STORAGE_TRANSFER_UPDATE (`StorageTransferUpdatedEvent`, a `StorageTransfer`
+  with its `StorageTransferStatus`): a storage transfer the user started, as
+  it is now, and `GatewayEvents.onStorageTransferUpdate`.
+- READY's `guild_ids` (`GatewayReadyData.guildIds`): the spaces whose
+  SPACE_CREATE follows, which the desktop app counts to know when all came.
+- CONVERSATION_UPDATE's `owner_id` (`ConversationUpdateEvent.ownerId`), which
+  changes when a group's owner leaves; FRIEND_REQUEST_ACCEPT's `status_id`
+  (`FriendRequestAcceptEvent.statusId`), the new friend's status; and
+  USER_UPDATE's `flags` and `badges` (`UserUpdateEvent.flags` and `badges`).
+  Each is null from an API that leaves it out.
+- **Failed attempts to connect:** `onConnectFailure`, on the manager and the
+  client, gets a `GatewayConnectFailure` for each attempt to open a socket
+  that failed: its `shardId`; `failures`, how many failed in a row since a
+  socket last opened; `httpStatus`, the gateway's answer when it refused the
+  upgrade; and the `error`, the token masked, which keeps the status. A token
+  that stopped working is refused at the upgrade (401), not closed (4004), so
+  the app couldn't tell: it can ask the API about the session then. The
+  desktop app, which can't see the status, asks on the first failure and
+  every 5th after it (failures 1, 6, 11…). While the gateway can't check
+  tokens it answers 503 with `Retry-After: 5`, which the desktop app can't
+  read: it waits as after any failure, and so does this package.
+- **`retryNow()`**, on the client and the manager, ends the wait before the
+  next attempt to open a socket, so that it goes now: when the app comes back
+  to the foreground, say, rather than waiting up to 30 seconds. It answers
+  whether there was a wait.
+
+### Fixed
+
+- A `close-with-reason` frame was read as an event without data: it set the
+  sequence number to 0, and counted as hearing from the gateway, so after a
+  sleep a refused identify hid how long the sleep lasted from
+  `silenceBeforeReady`. It does neither now, as in the desktop app.
+- **A bot's shards sent no shard in identify**, though `GatewayClient`'s doc
+  said they did: each one got every space. With more than one shard, each
+  sends its `shard_id` and `num_shards` now. With one, as by default, neither
+  goes, as before: the gateway gives a bot shard 0 of 1, and closes a
+  person's socket that sends them (4000).
+- **The wait before another socket is the desktop app's:** a second after a
+  drop, doubling with each attempt that fails, up to 30 seconds, plus up to a
+  second at random (`reconnectDelay` in `gateway/client.dart`). It was half a
+  second, doubling up to 2.5 seconds, so a client that couldn't connect tried
+  every 2.5 seconds for good, plus a "jitter" that was the same every time
+  for a token. And from the 56th wait in a row 500 × 2^55 overflowed: the
+  wait went negative, or later to 0, so the client tried again at once, or
+  after that jitter, under half a second.
+- **A socket the app opened with `connect()` while the client waited to
+  reconnect was closed** by the attempt that came after the wait, which
+  opened another. The client keeps it now, and makes no attempt.
 
 ### Tests
 
@@ -35,6 +183,49 @@ out, and they read as null.
   `bot_ready_event` come from the unmerged branches that add these fields: the
   API's `space-delete-bio` (the bio) and `dnd-status` (the status), and the
   gateway's `dnd-status`. Every other fixture they make is unchanged.
+- `test/resume_test.dart`, against a fake gateway that keeps sessions as the
+  real one does: without `resume`, each socket starts a new session, and the
+  identify is what it was; with it, the identify carries the session token and
+  the last sequence number, the missed events come, then `onResume`, without
+  READY, and the next drop resumes again; a session the gateway can't resume
+  gets READY and no `onResume`; `wantFreshSession`; a socket gone before the
+  gateway said whether it resumed is followed by the same resume when nothing
+  came on it, and by a new session when an event did; an event without a
+  sequence number leaves where a resume starts; a `close-with-reason` reaches
+  `onCloseReason` and leaves the sequence number alone; a 4000 stops the
+  client until `connect()`, and the close reason says which shard; the
+  silence before READY counts from before a `close-with-reason`.
+- `test/models_test.dart`: each new event from its fixtures, as an event of
+  its own and no `UnknownEvent`; activities, cleared and bare;
+  SPACE_CREATE's activities; SPACE_MEMBER_ADD's status and user; a bot's
+  status's space; the conversation users' new fields; a reply's
+  `mention_author`; the ephemeral and loading flags, and flags and interaction
+  metadata on the gateway's and the API's messages; close reasons.
+- `test/requests_test.dart`: `allowed_mentions` as JSON and in a form, for
+  rooms and conversations.
+- READY's spaces, CONVERSATION_UPDATE's owner, FRIEND_REQUEST_ACCEPT's
+  status, USER_UPDATE's flags and badges, each also left out;
+  VOICE_VIDEO_REFUSED with and without its limit, also through
+  `WebRTCController`; STORAGE_TRANSFER_UPDATE, full and not started.
+- `test/gateway_test.dart`: a bot's two shards identify with theirs, and a
+  person's identify carries no shard; the waits before each attempt, as the
+  schedule gives them (a second up to 30, also far past where a power of two
+  overflows, and at random), and as two refused attempts in a row take them,
+  1 then 2 seconds and more.
+- `test/gateway_test.dart`: each failed attempt reaches `onConnectFailure`,
+  with the gateway's 401 and 503 and their count, which starts over once a
+  socket opened; after the 503 the usual wait, not its `Retry-After`; a
+  timeout, with no status; and `connect()`'s error keeps the status. A
+  shard's failure says which shard; a socket the app opens during the wait is
+  kept; `retryNow()` makes the next attempt go at once.
+- The fixtures `message_pin_update_event`, `dm_message_pin_update_event`,
+  `room_reorder_event` and `team_invite_create_event` (the API's events) and
+  `user_activity_update_event` (the gateway's), made by
+  `tool/fixtures/generate.sh` from the API's `dev` (c8a65b7) and the gateway's
+  (793f502); every other fixture came out unchanged. RECORDING and
+  DM_RECORDING use `typing_event` and `dm_typing_event`: the API's `Recording`
+  is `Typing`. Then `storage_transfer_update_event` (the API's) and
+  `voice_video_refused_event` (the gateway's), the same way.
 
 ## 1.0.1 – 2026-10-23
 

@@ -16,6 +16,10 @@ class GatewayManager with GatewayEvents {
   final _eventController = StreamController<GatewayEventPayload>.broadcast();
   final _errorController = StreamController<DuvetException>.broadcast();
   final _stateController = StreamController<GatewayConnectionState>.broadcast();
+  final _resumeController = StreamController<GatewayResume>.broadcast();
+  final _closeController = StreamController<GatewayCloseReason>.broadcast();
+  final _failureController =
+      StreamController<GatewayConnectFailure>.broadcast();
 
   @override
   Stream<GatewayEventPayload> get onEvent => _eventController.stream;
@@ -25,10 +29,28 @@ class GatewayManager with GatewayEvents {
 
   /// Broadcast stream of the shards' connection states as they change:
   /// [GatewayConnectionState.reconnecting] when a socket dropped (READY comes
-  /// again once a new one is open), [GatewayConnectionState.connected] when
-  /// one opened, and [GatewayConnectionState.disconnected] once destroyed.
+  /// again once a new one is open, or [onResume] with [resume]),
+  /// [GatewayConnectionState.connected] when one opened, and
+  /// [GatewayConnectionState.disconnected] once destroyed, or when the gateway
+  /// refused a shard's options (4000): that shard opens no other socket, and
+  /// a manager with other options takes its place.
   Stream<GatewayConnectionState> get onConnectionState =>
       _stateController.stream;
+
+  /// Broadcast stream that fires when the gateway resumed a shard's session
+  /// on a new socket ([resume]; [GatewayClient.onResume]): it's live again,
+  /// with the events it missed delivered before, and no READY.
+  Stream<GatewayResume> get onResume => _resumeController.stream;
+
+  /// Broadcast stream of the reasons the gateway gives before it closes a
+  /// shard's socket ([GatewayClient.onCloseReason]).
+  Stream<GatewayCloseReason> get onCloseReason => _closeController.stream;
+
+  /// Broadcast stream of the shards' attempts to open a socket that failed
+  /// ([GatewayClient.onConnectFailure]): with the gateway's HTTP status, a
+  /// 401 when it doesn't know the token, and how many failed in a row.
+  Stream<GatewayConnectFailure> get onConnectFailure =>
+      _failureController.stream;
 
   final RestClient api;
   final void Function(int shardId, String msg) _log;
@@ -36,6 +58,11 @@ class GatewayManager with GatewayEvents {
   /// How long opening a socket may take before the attempt is dropped and
   /// another one starts ([defaultConnectTimeout]).
   final Duration connectTimeout;
+
+  /// Whether a shard's socket that replaces one that dropped resumes its
+  /// session ([GatewayClient.resume]). Off, as by default, each socket gets
+  /// a READY.
+  final bool resume;
 
   final List<GatewayClient> _shards = List.empty(growable: true);
   final List<StreamSubscription<dynamic>> _shardSubs =
@@ -50,6 +77,7 @@ class GatewayManager with GatewayEvents {
     void Function(int shardId, String msg)? log,
     ApiRouter? router,
     this.connectTimeout = defaultConnectTimeout,
+    this.resume = false,
   })  : _log = log ?? defaultLog,
         router = router ?? const ApiRouter();
 
@@ -60,6 +88,7 @@ class GatewayManager with GatewayEvents {
     void Function(int shardId, String msg)? log,
     ApiRouter? router,
     this.connectTimeout = defaultConnectTimeout,
+    this.resume = false,
   })  : api = RestClient(http.Client()),
         _log = log ?? defaultLog,
         router = router ?? const ApiRouter();
@@ -91,8 +120,30 @@ class GatewayManager with GatewayEvents {
     _eventController.close();
     _errorController.close();
     _stateController.close();
+    _resumeController.close();
+    _closeController.close();
+    _failureController.close();
     api.client.close();
     _log(-1, '[GatewayManager] destroyed');
+  }
+
+  /// Makes each shard's next identify start a new session, with READY,
+  /// rather than resume its own ([GatewayClient.wantFreshSession]).
+  void wantFreshSession() {
+    for (final shard in _shards) {
+      shard.wantFreshSession();
+    }
+  }
+
+  /// Ends each shard's wait before its next attempt to open a socket, so that
+  /// it tries now ([GatewayClient.retryNow]), and answers whether one was
+  /// waiting.
+  bool retryNow() {
+    var waiting = false;
+    for (final shard in _shards) {
+      if (shard.retryNow()) waiting = true;
+    }
+    return waiting;
   }
 
   /// Sends an arbitrary event message through shard 0, and answers whether it
@@ -128,7 +179,8 @@ class GatewayManager with GatewayEvents {
         shardCount: shardCount,
         log: (msg) => _log(shardId, msg),
         router: router,
-        connectTimeout: connectTimeout);
+        connectTimeout: connectTimeout,
+        resume: resume);
 
     _shardSubs.addAll([
       client.events.listen(
@@ -149,6 +201,15 @@ class GatewayManager with GatewayEvents {
       ),
       client.onConnectionState.listen((state) {
         if (!_stateController.isClosed) _stateController.add(state);
+      }),
+      client.onResume.listen((resume) {
+        if (!_resumeController.isClosed) _resumeController.add(resume);
+      }),
+      client.onCloseReason.listen((close) {
+        if (!_closeController.isClosed) _closeController.add(close);
+      }),
+      client.onConnectFailure.listen((failure) {
+        if (!_failureController.isClosed) _failureController.add(failure);
       }),
     ]);
     _shards.add(client);
