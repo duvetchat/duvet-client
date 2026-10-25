@@ -16,7 +16,7 @@ class GatewayManager with GatewayEvents {
   final _eventController = StreamController<GatewayEventPayload>.broadcast();
   final _errorController = StreamController<DuvetException>.broadcast();
   final _stateController = StreamController<GatewayConnectionState>.broadcast();
-  final _resumeController = StreamController<void>.broadcast();
+  final _resumeController = StreamController<GatewayResume>.broadcast();
   final _closeController = StreamController<GatewayCloseReason>.broadcast();
   final _failureController =
       StreamController<GatewayConnectFailure>.broadcast();
@@ -31,14 +31,16 @@ class GatewayManager with GatewayEvents {
   /// [GatewayConnectionState.reconnecting] when a socket dropped (READY comes
   /// again once a new one is open, or [onResume] with [resume]),
   /// [GatewayConnectionState.connected] when one opened, and
-  /// [GatewayConnectionState.disconnected] once destroyed.
+  /// [GatewayConnectionState.disconnected] once destroyed, or when the gateway
+  /// refused a shard's options (4000): that shard opens no other socket, and
+  /// a manager with other options takes its place.
   Stream<GatewayConnectionState> get onConnectionState =>
       _stateController.stream;
 
   /// Broadcast stream that fires when the gateway resumed a shard's session
   /// on a new socket ([resume]; [GatewayClient.onResume]): it's live again,
   /// with the events it missed delivered before, and no READY.
-  Stream<void> get onResume => _resumeController.stream;
+  Stream<GatewayResume> get onResume => _resumeController.stream;
 
   /// Broadcast stream of the reasons the gateway gives before it closes a
   /// shard's socket ([GatewayClient.onCloseReason]).
@@ -133,6 +135,17 @@ class GatewayManager with GatewayEvents {
     }
   }
 
+  /// Ends each shard's wait before its next attempt to open a socket, so that
+  /// it tries now ([GatewayClient.retryNow]), and answers whether one was
+  /// waiting.
+  bool retryNow() {
+    var waiting = false;
+    for (final shard in _shards) {
+      if (shard.retryNow()) waiting = true;
+    }
+    return waiting;
+  }
+
   /// Sends an arbitrary event message through shard 0, and answers whether it
   /// went out on an open socket ([GatewayClient.sendMessage]).
   ///
@@ -189,8 +202,8 @@ class GatewayManager with GatewayEvents {
       client.onConnectionState.listen((state) {
         if (!_stateController.isClosed) _stateController.add(state);
       }),
-      client.onResume.listen((_) {
-        if (!_resumeController.isClosed) _resumeController.add(null);
+      client.onResume.listen((resume) {
+        if (!_resumeController.isClosed) _resumeController.add(resume);
       }),
       client.onCloseReason.listen((close) {
         if (!_closeController.isClosed) _closeController.add(close);

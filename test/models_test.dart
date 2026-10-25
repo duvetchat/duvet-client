@@ -780,8 +780,11 @@ void main() {
         'code': 4004,
         'reason': 'session ended'
       });
-      expect((close.code, close.reason),
-          (GatewayCloseCode.invalidCredentials, 'session ended'));
+      expect((close.code, close.reason, close.shardId),
+          (GatewayCloseCode.invalidCredentials, 'session ended', 0));
+      // The client says which shard's socket it was.
+      expect(
+          GatewayCloseReason.fromJson({'code': 4000}, shardId: 3).shardId, 3);
       expect((
         GatewayCloseCode.invalidShard,
         GatewayCloseCode.notIdentified,

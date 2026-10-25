@@ -252,8 +252,11 @@ void main() {
   });
 
   test('a bot\'s shards send theirs in identify', () async {
+    // The second shard's first attempt is refused.
+    gateway.plan = (n) => n == 1 ? _Answer.unauthorized : _Answer.upgrade;
     final g = _manager(gateway);
     addTearDown(g.manager.destroy);
+    final failed = g.manager.onConnectFailure.first;
 
     await g.manager.connectAll(shardCount: 2);
     await gateway.identifies(2);
@@ -261,6 +264,59 @@ void main() {
       {'token': _token, 'shard_id': 0, 'num_shards': 2},
       {'token': _token, 'shard_id': 1, 'num_shards': 2},
     ]);
+    // Which shard failed, as a manager of several tells them apart.
+    final failure = await failed;
+    expect(
+        (failure.shardId, failure.failures, failure.httpStatus), (1, 1, 401));
+  });
+
+  test('a socket the app opens while the client waits is the one kept',
+      () async {
+    final client = GatewayClient(
+        RestClient(http.Client(), token: _token, router: gateway.router),
+        router: gateway.router,
+        log: (_) {});
+    addTearDown(client.destroy);
+    await client.connect();
+    await gateway.identifies(1);
+
+    final reconnecting = client.onConnectionState
+        .where((s) => s == GatewayConnectionState.reconnecting)
+        .first;
+    await gateway.open.single.close(); // the client waits 1 to 2 s now
+    await reconnecting;
+    await client.connect(); // the app, back in the foreground
+    await gateway.identifies(2);
+    final kept = client.connection;
+
+    // Past the wait: no other socket replaces it.
+    await Future<void>.delayed(const Duration(milliseconds: 2500));
+    expect(gateway.identified, hasLength(2));
+    expect(gateway.open, hasLength(1));
+    expect(client.connection, kept);
+    expect(client.connectionState, GatewayConnectionState.connected);
+  });
+
+  test('retryNow ends the wait: the next attempt goes at once', () async {
+    final g = _manager(gateway);
+    addTearDown(g.manager.destroy);
+    await g.manager.connectAll();
+    await gateway.identifies(1);
+    // Nothing to wait for.
+    expect(g.manager.retryNow(), isFalse);
+
+    final reconnecting = g.manager.onConnectionState
+        .where((s) => s == GatewayConnectionState.reconnecting)
+        .first;
+    final watch = Stopwatch();
+    await gateway.open.single.close();
+    await reconnecting;
+    watch.start();
+    expect(g.manager.retryNow(), isTrue);
+    await gateway.identifies(2);
+    // The wait would have been a second at least.
+    expect(watch.elapsed, lessThan(const Duration(milliseconds: 900)));
+    expect(g.manager.retryNow(), isFalse);
   });
 
   test('an attempt that hangs is dropped after connectTimeout', () async {
@@ -329,10 +385,13 @@ void main() {
     expect(
         failures.map((f) => (f.failures, f.httpStatus)), [(1, 401), (2, 503)]);
     for (final f in failures) {
+      expect(f.shardId, 0);
       expect(
           '${f.error}',
           allOf(contains('HTTP status code: ${f.httpStatus}'),
               isNot(contains(_token))));
+      // The masked error keeps dart:io's field.
+      expect((f.error as WebSocketException).httpStatusCode, f.httpStatus);
     }
     // The desktop app doesn't honor the 503's Retry-After (5 s), which a
     // browser can't read: the wait after it is a second failure's, 2 to 3 s.

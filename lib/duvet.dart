@@ -10,6 +10,7 @@ export 'package:duvet_client/gateway/client.dart'
         GatewayClient,
         GatewayConnectionState,
         GatewayConnectFailure,
+        GatewayResume,
         defaultConnectTimeout;
 export 'package:duvet_client/gateway/manager.dart' show GatewayManager;
 export 'package:duvet_client/gateway/webrtc_controller.dart'

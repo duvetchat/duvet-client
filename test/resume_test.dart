@@ -85,6 +85,16 @@ class _Gateway {
     _socket?.add(jsonEncode(frame));
   }
 
+  /// Sends an event without a sequence number, as no event of the gateway's
+  /// is today.
+  void sendBare(String type, Map<String, dynamic> data) {
+    _socket?.add(jsonEncode({
+      'event': 'payload',
+      'op': 1,
+      'd': {'type': type, 'data': data},
+    }));
+  }
+
   /// Drops the socket, as a network failure does: the session stays.
   Future<void> drop() async {
     final socket = _socket;
@@ -308,8 +318,8 @@ void main() {
   });
 
   test(
-      'a socket gone before the gateway said whether it resumed: the next '
-      'one starts a new session', () async {
+      'a socket gone before the gateway answered, with nothing on it: the '
+      'next one resumes from the same place', () async {
     final c = client(resume: true);
     final log = _record(c.events, c.onResume);
     await c.connect();
@@ -321,12 +331,96 @@ void main() {
     await gateway.drop();
     await gateway.identifies(2);
     expect(gateway.identified.last['session_token'], 'session-1');
-    // No answer: what it could have sent may have been a new session's.
+    // Nothing came on it, so the sequence number didn't move.
+    gateway.answersResumes = true;
+    final resumed = c.onResume.first;
+    await gateway.drop();
+    await resumed;
+    expect(gateway.identified.last,
+        {'token': _token, 'last_seq': 2, 'session_token': 'session-1'});
+    expect(log, ['READY session-1', 'deleted m1', 'resumed']);
+  });
+
+  test(
+      'a socket gone before the gateway answered, with an event on it: the '
+      'next one starts a new session', () async {
+    final c = client(resume: true);
+    final log = _record(c.events, c.onResume);
+    await c.connect();
+    await gateway.identifies(1);
+    gateway.push('MESSAGE_DELETE', _deleted('m1'));
+    await c.events.whereType<MessageDeletedEvent>().first;
+
+    gateway.answersResumes = false;
+    await gateway.drop();
+    await gateway.identifies(2);
+    // It may have been a new session's, whose number would resume the old
+    // one at the wrong place.
+    gateway.push('MESSAGE_DELETE', _deleted('m2'));
+    await c.events.whereType<MessageDeletedEvent>().first;
     final ready = c.events.whereType<ReadyEvent>().first;
     await gateway.drop();
     await ready;
-    expect(gateway.identified.last, {'token': _token, 'last_seq': 2});
-    expect(log, ['READY session-1', 'deleted m1', 'READY session-2']);
+    expect(gateway.identified.last, {'token': _token, 'last_seq': 3});
+    expect(log,
+        ['READY session-1', 'deleted m1', 'deleted m2', 'READY session-2']);
+  });
+
+  test('an event without a sequence number leaves where a resume starts',
+      () async {
+    final c = client(resume: true);
+    final first = c.events.whereType<ReadyEvent>().first;
+    await c.connect();
+    await first;
+    gateway.push('MESSAGE_DELETE', _deleted('m1'));
+    gateway.sendBare('MESSAGE_DELETE', _deleted('m2'));
+    await c.events.whereType<MessageDeletedEvent>().skip(1).first;
+
+    final resumed = c.onResume.first;
+    await gateway.drop();
+    final resume = await resumed;
+    expect(resume.shardId, 0);
+    expect(gateway.identified.last,
+        {'token': _token, 'last_seq': 2, 'session_token': 'session-1'});
+  });
+
+  test('a close with 4000: the client stops until the app connects again',
+      () async {
+    // A bot's second shard, whose options the gateway refuses.
+    final c = GatewayClient(
+        RestClient(http.Client(), token: _token, router: gateway.router),
+        router: gateway.router,
+        log: (_) {},
+        shardId: 1,
+        shardCount: 2);
+    addTearDown(c.destroy);
+    final first = c.events.whereType<ReadyEvent>().first;
+    await c.connect();
+    await first;
+
+    final closed = c.onCloseReason.first;
+    final stopped = c.onConnectionState
+        .where((s) => s == GatewayConnectionState.disconnected)
+        .first;
+    await gateway.closeWithReason(4000, 'shard_id out of range');
+    final close = await closed;
+    expect((close.code, close.reason, close.shardId),
+        (GatewayCloseCode.invalidShard, 'shard_id out of range', 1));
+    await stopped;
+    // Longer than the wait before another attempt: none comes.
+    await Future<void>.delayed(const Duration(milliseconds: 2500));
+    expect(gateway.identified, hasLength(1));
+    expect(c.connectionState, GatewayConnectionState.disconnected);
+    expect(c.retryNow(), isFalse);
+
+    await c.connect();
+    await gateway.identifies(2);
+    expect(c.connectionState, GatewayConnectionState.connected);
+    expect(gateway.identified.last,
+        {'token': _token, 'last_seq': 1, 'shard_id': 1, 'num_shards': 2});
+    // Going again: a drop is followed by another socket, as before.
+    await gateway.drop();
+    await gateway.identifies(3);
   });
 
   test(

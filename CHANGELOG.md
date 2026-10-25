@@ -7,10 +7,10 @@ out, and they read as null.
 Then what the desktop app has and this package lacked: the gateway events it
 dropped, resuming a dropped gateway session, the gateway's close reasons, the
 attempts to connect that fail, `allowed_mentions`, a bot's shards in identify,
-and the desktop app's wait between attempts to reconnect. **Breaking change:**
-the events it dropped join the sealed `GatewayEventPayload` (see "Breaking
-changes"). Resuming is off unless asked for, and the new parameters and fields
-are optional.
+and the desktop app's wait between attempts to reconnect. **Breaking changes:**
+the events it dropped join the sealed `GatewayEventPayload`, and the package
+needs Dart 3.6 (see "Breaking changes"). Resuming is off unless asked for, and
+the new parameters and fields are optional.
 
 ### Breaking changes
 
@@ -21,6 +21,9 @@ are optional.
   `StorageTransferUpdatedEvent` (see "Added"). A `switch` over it without a
   default case has to handle them, and they no longer come as `UnknownEvent`s:
   code that read them by `type` and `rawData` has to match their own types.
+- **The package needs Dart 3.6** (it took 3.0): it reads the HTTP status of a
+  refused upgrade from `WebSocketException.httpStatusCode`, which dart:io has
+  since 3.6.
 
 ### Added
 
@@ -69,25 +72,34 @@ are optional.
   events:
   - when it resumes it, it replays the events after that number, then sends
     the new ones, and no READY: `onResume` (on the manager and the client)
-    fires after the replay. The gateway gives no word of it, so the client
-    sends a heartbeat with the identify: its ack comes after the replay, or
-    after READY when the gateway starts a new session instead.
+    gives a `GatewayResume`, with its `shardId`, after the replay. The gateway
+    gives no word of it, so the client sends a heartbeat with the identify:
+    its ack comes after the replay, or after READY when the gateway starts a
+    new session instead. (Not when the gateway's identify fails after it took
+    the socket, a Redis error: it then answers the heartbeat alone, which
+    reads as a resume. The gateway is to close such a socket.)
   - when it can't, READY comes, as without `resume`.
 
-  `wantFreshSession()` makes the next identify start a new session, until a
-  READY comes: the desktop app asks for one when voice has to join while no
-  socket is open, since it joins on READY. A socket that closes before the
-  gateway said whether it resumed is followed by a new session, as what came
-  on it may have been one. Off by default: without it each socket gets a
-  READY, which apps may wait for (the mobile app's online state and voice
-  do).
+  The last sequence number comes only from events that carry one, as the
+  desktop app takes it. `wantFreshSession()` makes the next identify start a
+  new session, until a READY comes: the desktop app asks for one when voice
+  has to join while no socket is open, since it joins on READY. A socket that
+  closes before the gateway said whether it resumed is followed by a new
+  session when something on it moved the sequence number, as it may have been
+  a new session's, and by the same resume when nothing did. Off by default:
+  without it each socket gets a READY, which apps may wait for (the mobile
+  app's online state and voice do).
 - **The gateway's close reasons:** `onCloseReason`, on the manager and the
-  client, gets a `GatewayCloseReason` (`code`, `reason`) for each
-  `close-with-reason`, before the socket closes and another one opens.
-  `GatewayCloseCode` names the codes: `invalidShard` (4000), `notIdentified`
-  (4003), `invalidCredentials` (4004), `alreadyIdentified` (4005). On 4004 the
-  desktop app asks the API about the session at once: a dead one gets a 401,
-  which signs out; a live one renews the token, which the next socket uses.
+  client, gets a `GatewayCloseReason` (`code`, `reason`, and the `shardId` of
+  its socket) for each `close-with-reason`, before the socket closes and
+  another one opens. `GatewayCloseCode` names the codes: `invalidShard`
+  (4000), `notIdentified` (4003), `invalidCredentials` (4004),
+  `alreadyIdentified` (4005). After 4000 no other socket opens, as the same
+  shard options would be refused again: the client stays
+  `GatewayConnectionState.disconnected` until the app calls `connect()`. On
+  4004 the desktop app asks the API about the session at once: a dead one
+  gets a 401, which signs out; a live one renews the token, which the next
+  socket uses.
 - **`allowed_mentions`:** `sendMessage` and `sendDirectMessage` take
   `allowedMentions`. A reply mentions the author of the message it replies
   to; `AllowedMentions(repliedUser: false)` sends one that doesn't. In a
@@ -122,16 +134,19 @@ are optional.
   Each is null from an API that leaves it out.
 - **Failed attempts to connect:** `onConnectFailure`, on the manager and the
   client, gets a `GatewayConnectFailure` for each attempt to open a socket
-  that failed: `failures`, how many failed in a row since a socket last
-  opened; `httpStatus`, the gateway's answer when it refused the upgrade; and
-  the `error`, the token masked, which keeps the status in its text. A token
+  that failed: its `shardId`; `failures`, how many failed in a row since a
+  socket last opened; `httpStatus`, the gateway's answer when it refused the
+  upgrade; and the `error`, the token masked, which keeps the status. A token
   that stopped working is refused at the upgrade (401), not closed (4004), so
   the app couldn't tell: it can ask the API about the session then. The
   desktop app, which can't see the status, asks on the first failure and
-  every 5th after it (failures 1, 6, 11…). The status needs Dart 3.6, whose
-  dart:io gives it; it's null before. While the gateway can't check tokens it
-  answers 503 with `Retry-After: 5`, which the desktop app can't read: it
-  waits as after any failure, and so does this package.
+  every 5th after it (failures 1, 6, 11…). While the gateway can't check
+  tokens it answers 503 with `Retry-After: 5`, which the desktop app can't
+  read: it waits as after any failure, and so does this package.
+- **`retryNow()`**, on the client and the manager, ends the wait before the
+  next attempt to open a socket, so that it goes now: when the app comes back
+  to the foreground, say, rather than waiting up to 30 seconds. It answers
+  whether there was a wait.
 
 ### Fixed
 
@@ -149,8 +164,12 @@ are optional.
   second at random (`reconnectDelay` in `gateway/client.dart`). It was half a
   second, doubling up to 2.5 seconds, so a client that couldn't connect tried
   every 2.5 seconds for good, plus a "jitter" that was the same every time
-  for a token. And from the 61st failure in a row its power of two
-  overflowed: the wait fell to that jitter, under half a second.
+  for a token. And from the 56th wait in a row 500 × 2^55 overflowed: the
+  wait went negative, or later to 0, so the client tried again at once, or
+  after that jitter, under half a second.
+- **A socket the app opened with `connect()` while the client waited to
+  reconnect was closed** by the attempt that came after the wait, which
+  opened another. The client keeps it now, and makes no attempt.
 
 ### Tests
 
@@ -170,9 +189,12 @@ are optional.
   the last sequence number, the missed events come, then `onResume`, without
   READY, and the next drop resumes again; a session the gateway can't resume
   gets READY and no `onResume`; `wantFreshSession`; a socket gone before the
-  gateway said whether it resumed is followed by a new session; a
-  `close-with-reason` reaches `onCloseReason` and leaves the sequence number
-  alone; the silence before READY counts from before a `close-with-reason`.
+  gateway said whether it resumed is followed by the same resume when nothing
+  came on it, and by a new session when an event did; an event without a
+  sequence number leaves where a resume starts; a `close-with-reason` reaches
+  `onCloseReason` and leaves the sequence number alone; a 4000 stops the
+  client until `connect()`, and the close reason says which shard; the
+  silence before READY counts from before a `close-with-reason`.
 - `test/models_test.dart`: each new event from its fixtures, as an event of
   its own and no `UnknownEvent`; activities, cleared and bare;
   SPACE_CREATE's activities; SPACE_MEMBER_ADD's status and user; a bot's
@@ -193,7 +215,9 @@ are optional.
 - `test/gateway_test.dart`: each failed attempt reaches `onConnectFailure`,
   with the gateway's 401 and 503 and their count, which starts over once a
   socket opened; after the 503 the usual wait, not its `Retry-After`; a
-  timeout, with no status; and `connect()`'s error keeps the status.
+  timeout, with no status; and `connect()`'s error keeps the status. A
+  shard's failure says which shard; a socket the app opens during the wait is
+  kept; `retryNow()` makes the next attempt go at once.
 - The fixtures `message_pin_update_event`, `dm_message_pin_update_event`,
   `room_reorder_event` and `team_invite_create_event` (the API's events) and
   `user_activity_update_event` (the gateway's), made by

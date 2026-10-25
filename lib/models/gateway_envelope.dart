@@ -173,7 +173,9 @@ class GatewayEnvelope {
 
 /// The codes of [GatewayCloseReason.code].
 abstract final class GatewayCloseCode {
-  /// Bad shard options in identify: a bot's.
+  /// Bad shard options in identify: a bot's, or a person's who sent any. The
+  /// client stops, as the same options would be refused again: it opens no
+  /// other socket until the app connects again.
   static const invalidShard = 4000;
 
   /// Something other than identify or a heartbeat before identify.
@@ -198,12 +200,16 @@ class GatewayCloseReason {
   final int code;
   final String reason;
 
-  const GatewayCloseReason({required this.code, required this.reason});
+  /// The shard whose socket it is: 0 without sharding.
+  final int shardId;
 
-  GatewayCloseReason.fromJson(Map<String, dynamic> j)
+  const GatewayCloseReason(
+      {required this.code, required this.reason, this.shardId = 0});
+
+  GatewayCloseReason.fromJson(Map<String, dynamic> j, {this.shardId = 0})
       : code = j['code'] as int? ?? 0,
         reason = j['reason'] as String? ?? '';
 
   @override
-  String toString() => 'GatewayCloseReason($code $reason)';
+  String toString() => 'GatewayCloseReason(shard $shardId: $code $reason)';
 }
