@@ -449,6 +449,8 @@ void main() {
           'storage_transfer_update_event',
           StorageTransferUpdatedEvent
         ),
+        'CALL_OUTGOING': ('call_outgoing_event', CallOutgoingPayloadEvent),
+        'CALL_ONGOING': ('call_ongoing_event', CallOngoingPayloadEvent),
       };
       for (final MapEntry(key: type, value: (name, event)) in added.entries) {
         final e = dispatch(type, _load(name, 'full'));

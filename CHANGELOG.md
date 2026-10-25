@@ -66,7 +66,8 @@ the new parameters and fields are optional.
     say what the gateway does now: a CALL_INITIATE into a call going on joins
     it, a decline reaches every session of whoever declined, and a cancel from
     someone whose CALL_INITIATE answered the call ends it only while nobody
-    else has accepted it.
+    else has accepted it. The caller's own cancel, once they came back to the
+    call by calling it, only takes their voice out.
 - **Gateway events it dropped** (they came as `UnknownEvent`s):
   - MESSAGE_PIN_UPDATE (`MessagePinUpdatedEvent`, a `MessagePinUpdateEvent`:
     the message, its room, and `pinnedAt`, null once unpinned) and
@@ -201,8 +202,8 @@ the new parameters and fields are optional.
   fields and a READY without them, CALL_ONGOING replacing what `VoiceStates`
   knew of its call, and `WebRTCController` passing both events on. The
   fixtures `call_outgoing_event` and `call_ongoing_event` are new, and
-  `ready_event` gains the call fields. They come from gateway#25's unmerged
-  branch, `calls-across-devices`; every other fixture it makes is unchanged.
+  `ready_event` gains the call fields. They come from gateway#25's branch,
+  `calls-across-devices`; every other fixture it makes is unchanged.
 - What `updateUser` and `setStatus` send, a bot's refusal, and the new fields,
   present and left out.
 - A friend's status, and none from an older API. The fixtures were made again

@@ -180,9 +180,12 @@ class VoiceStates {
 /// [acceptCall]. A call rings none of its caller's devices, which get
 /// CALL_OUTGOING instead ([onCallOutgoing]), and one that goes on without
 /// ringing the user comes as CALL_ONGOING ([onCallOngoing]); they join it
-/// with [acceptCall], or with [initiateCall]. A CALL_ACCEPTED with the user's
-/// own ID means they answered on another device, or rejoined a call they
-/// started.
+/// with [acceptCall], or with [initiateCall], which starts a new call,
+/// ringing the others, if this one ended meanwhile. Each CALL_ACCEPTED reaches
+/// every session of every member, the one that answered included, and one
+/// user's can come more than once: with the user's own ID, on a device that
+/// didn't answer, it means they answered on another device, or came back to a
+/// call they started.
 class WebRTCController {
   final GatewayManager _manager;
   final List<StreamSubscription<dynamic>> _subs = [];
@@ -339,7 +342,8 @@ class WebRTCController {
   /// who hung up rejoins the same way once someone has answered it, with a
   /// CALL_ACCEPTED of their own ID that isn't an answer; before that, their
   /// app joins at the first answer. From someone in its voice, it changes
-  /// nothing.
+  /// nothing. A call that ended meanwhile is started again: the others get
+  /// CALL_INCOMING once the old one's CALL_ENDED is out.
   bool initiateCall(String conversationId, List<String> memberIds) =>
       _send('CALL_INITIATE', {
         'conversation_id': conversationId,
@@ -358,10 +362,11 @@ class WebRTCController {
   bool declineCall(String conversationId) =>
       _send('CALL_DECLINE', {'conversation_id': conversationId});
 
-  /// CALL_CANCEL: ends the call for everyone (CALL_ENDED). Its caller can, and
-  /// so can a member whose [initiateCall] answered it (calls that crossed)
-  /// while nobody else has accepted it; after that, theirs only takes their
-  /// voice out, as [leaveCall] does.
+  /// CALL_CANCEL: ends the call for everyone (CALL_ENDED). Its caller can,
+  /// unless they came back to it with [initiateCall]: then theirs only takes
+  /// their voice out, as [leaveCall] does, and the call goes on. So can a
+  /// member whose [initiateCall] answered it (calls that crossed) while nobody
+  /// else has accepted it; after that, theirs only takes their voice out too.
   bool cancelCall(String conversationId) =>
       _send('CALL_CANCEL', {'conversation_id': conversationId});
 
