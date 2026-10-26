@@ -191,6 +191,29 @@ void main() {
       expect(states.participantsIn('other').single.userId, 'leo');
     });
 
+    test('CALL_ONGOING replaces its call, but not with older states', () {
+      final states = VoiceStates()
+        ..apply(_state('c1', 'gone', 1))
+        ..apply(_state('c1', 'maya', 20, joined: false))
+        ..apply(_state('other', 'leo', 1));
+      states.ongoing(CallOngoingEvent.fromJson({
+        'conversation_id': 'c1',
+        'initiator_id': 'leo',
+        'voice_states': [
+          {'user_id': 'ana', 'version': 4},
+          // Older than the leave already applied.
+          {'user_id': 'maya', 'version': 10},
+        ],
+      }));
+      expect(states.participantsIn('c1').map((p) => p.userId), ['ana']);
+      // Another room is left alone.
+      expect(states.participantsIn('other').single.userId, 'leo');
+      // Nobody in its voice any more.
+      states.ongoing(
+          const CallOngoingEvent(conversationId: 'c1', initiatorId: 'leo'));
+      expect(states.participantsIn('c1'), isEmpty);
+    });
+
     test('a forgotten room is empty', () {
       final states = VoiceStates()..apply(_state('c1', 'maya', 1));
       states.forget('c1');
@@ -365,6 +388,27 @@ void main() {
       await rtc.onCallEnded.first;
       // The gateway sends no leave for a call that ended.
       expect(rtc.voiceStates.participantsIn('c1'), isEmpty);
+    });
+
+    test('passes on calls placed and calls going on, with who is in them',
+        () async {
+      final ready = manager.ready;
+      await manager.connectAll();
+      await ready;
+
+      gateway.push('CALL_OUTGOING', {'conversation_id': 'c1'});
+      expect((await rtc.onCallOutgoing.first).data.conversationId, 'c1');
+
+      gateway.push('CALL_ONGOING', {
+        'conversation_id': 'c2',
+        'initiator_id': 'maya',
+        'voice_states': [
+          {'user_id': 'maya', 'muted': true, 'version': 3},
+        ],
+      });
+      expect((await rtc.onCallOngoing.first).data.initiatorId, 'maya');
+      final maya = rtc.voiceStates.participantsIn('c2').single;
+      expect((maya.userId, maya.muted, maya.version), ('maya', true, 3));
     });
 
     test('silenceBeforeReady is the gap before READY, whatever follows it',

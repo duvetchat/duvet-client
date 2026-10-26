@@ -371,6 +371,8 @@ void main() {
       'TYPING': ('typing_event', []),
       'DM_TYPING': ('dm_typing_event', []),
       'CALL_INCOMING': ('call_incoming_event', []),
+      'CALL_OUTGOING': ('call_outgoing_event', []),
+      'CALL_ONGOING': ('call_ongoing_event', []),
       'CALL_ACCEPTED': ('call_member_event', []),
       'CALL_DECLINED': ('call_member_event', []),
       'CALL_ENDED': ('call_ended_event', []),
@@ -447,6 +449,8 @@ void main() {
           'storage_transfer_update_event',
           StorageTransferUpdatedEvent
         ),
+        'CALL_OUTGOING': ('call_outgoing_event', CallOutgoingPayloadEvent),
+        'CALL_ONGOING': ('call_ongoing_event', CallOngoingPayloadEvent),
       };
       for (final MapEntry(key: type, value: (name, event)) in added.entries) {
         final e = dispatch(type, _load(name, 'full'));
@@ -615,6 +619,43 @@ void main() {
           as ReadyEvent;
       expect(e.data.activeCalls, isNull);
       expect(e.data.sessionToken, isNotEmpty);
+    });
+
+    test('READY: whether each call rings and was answered, and who calls', () {
+      final call =
+          (dispatch('READY', _load('ready_event', 'full')) as ReadyEvent)
+              .data
+              .activeCalls!
+              .single;
+      expect((
+        call.initiatorName,
+        call.initiatorAvatar,
+        call.ringing,
+        call.answered
+      ), (
+        's-string',
+        's-string',
+        true,
+        true
+      ));
+
+      // A gateway from before them leaves them out.
+      final json = _load('ready_event', 'full');
+      final listed =
+          (json['active_calls'] as List).single as Map<String, dynamic>;
+      for (final key in [
+        'initiator_name',
+        'initiator_avatar',
+        'ringing',
+        'answered'
+      ]) {
+        listed.remove(key);
+      }
+      final old =
+          (dispatch('READY', json) as ReadyEvent).data.activeCalls!.single;
+      expect(
+          (old.initiatorName, old.initiatorAvatar, old.ringing, old.answered),
+          (null, null, null, null));
     });
 
     test('a bot\'s READY', () {
@@ -993,11 +1034,26 @@ void main() {
       expect(screen.data.limit, isNull);
     });
 
-    test('calls: incoming, accepted, declined, ended', () {
+    test('calls: incoming, outgoing, ongoing, accepted, declined, ended', () {
       final incoming =
           dispatch('CALL_INCOMING', _load('call_incoming_event', 'nulls'))
               as CallIncomingPayloadEvent;
       expect(incoming.data.initiatorAvatar, isNull);
+      final outgoing =
+          dispatch('CALL_OUTGOING', _load('call_outgoing_event', 'full'))
+              as CallOutgoingPayloadEvent;
+      expect(outgoing.data.conversationId, 's-string');
+      final ongoing =
+          dispatch('CALL_ONGOING', _load('call_ongoing_event', 'full'))
+              as CallOngoingPayloadEvent;
+      expect(
+          (ongoing.data.initiatorId, ongoing.data.voiceStates?.single.camera),
+          ('s-string', true));
+      // Null while nobody is in the call's voice.
+      final empty = dispatch('CALL_ONGOING',
+              _withNull(_load('call_ongoing_event', 'full'), 'voice_states'))
+          as CallOngoingPayloadEvent;
+      expect(empty.data.voiceStates, isNull);
       final accepted =
           dispatch('CALL_ACCEPTED', _load('call_member_event', 'full'))
               as CallAcceptedEvent;

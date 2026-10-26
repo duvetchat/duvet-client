@@ -4,6 +4,11 @@ Bios and the do-not-disturb status, for the API and gateway versions that bring
 them (not deployed yet). Nothing breaks: an older server leaves the new fields
 out, and they read as null.
 
+Calls that follow a user across their devices, for the gateway version that
+brings them (not deployed yet): CALL_OUTGOING, CALL_ONGOING, and whether
+READY's calls ring. An older gateway sends none of it, and the new fields read
+as null.
+
 Then what the desktop app has and this package lacked: the gateway events it
 dropped, resuming a dropped gateway session, the gateway's close reasons, the
 attempts to connect that fail, `allowed_mentions`, a bot's shards in identify,
@@ -17,8 +22,9 @@ the new parameters and fields are optional.
 - New events join the sealed `GatewayEventPayload`: `MessagePinUpdatedEvent`,
   `DMMessagePinUpdatedEvent`, `RecordingStartedEvent`,
   `DMRecordingStartedEvent`, `RoomReorderedEvent`, `UserActivityUpdatedEvent`,
-  `TeamInviteCreatedEvent`, `VoiceVideoRefusedPayloadEvent` and
-  `StorageTransferUpdatedEvent` (see "Added"). A `switch` over it without a
+  `TeamInviteCreatedEvent`, `VoiceVideoRefusedPayloadEvent`,
+  `StorageTransferUpdatedEvent`, `CallOutgoingPayloadEvent` and
+  `CallOngoingPayloadEvent` (see "Added"). A `switch` over it without a
   default case has to handle them, and they no longer come as `UnknownEvent`s:
   code that read them by `type` and `rawData` has to match their own types.
 - **The package needs Dart 3.6** (it took 3.0): it reads the HTTP status of a
@@ -43,6 +49,25 @@ the new parameters and fields are optional.
   each friend (`status_id`), whether or not a space is shared with them, so an
   app can show it before USER_STATUS_UPDATE brings a change. Null from an API
   before it.
+- **Calls across devices** (duvetchat/gateway#25):
+  - CALL_OUTGOING (`CallOutgoingPayloadEvent`, a `CallOutgoingEvent`): a call
+    the user started, on each of their sessions, which rings none of them;
+  - CALL_ONGOING (`CallOngoingPayloadEvent`, a `CallOngoingEvent`): a call
+    that goes on without ringing the user, because its ring window ended
+    before they answered or they were added during it, with who is in its
+    voice (`voiceStates`, null while nobody is). They can join it with
+    `acceptCall`;
+  - READY's `GatewayReadyActiveCall` gains `ringing`, `answered`,
+    `initiatorName` and `initiatorAvatar`, null from an older gateway;
+  - `onCallOutgoing` and `onCallOngoing`, on `GatewayEvents` and
+    `WebRTCController`, whose `voiceStates` takes CALL_ONGOING's
+    (`VoiceStates.ongoing`);
+  - the docs of `initiateCall`, `acceptCall`, `declineCall` and `cancelCall`
+    say what the gateway does now: a CALL_INITIATE into a call going on joins
+    it, a decline reaches every session of whoever declined, and a cancel from
+    someone whose CALL_INITIATE answered the call ends it only while nobody
+    else has accepted it. The caller's own cancel, once they came back to the
+    call by calling it, only takes their voice out.
 - **Gateway events it dropped** (they came as `UnknownEvent`s):
   - MESSAGE_PIN_UPDATE (`MessagePinUpdatedEvent`, a `MessagePinUpdateEvent`:
     the message, its room, and `pinnedAt`, null once unpinned) and
@@ -173,6 +198,12 @@ the new parameters and fields are optional.
 
 ### Tests
 
+- CALL_OUTGOING, CALL_ONGOING (its voice states, and none), READY's new call
+  fields and a READY without them, CALL_ONGOING replacing what `VoiceStates`
+  knew of its call, and `WebRTCController` passing both events on. The
+  fixtures `call_outgoing_event` and `call_ongoing_event` are new, and
+  `ready_event` gains the call fields. They come from gateway#25's branch,
+  `calls-across-devices`; every other fixture it makes is unchanged.
 - What `updateUser` and `setStatus` send, a bot's refusal, and the new fields,
   present and left out.
 - A friend's status, and none from an older API. The fixtures were made again

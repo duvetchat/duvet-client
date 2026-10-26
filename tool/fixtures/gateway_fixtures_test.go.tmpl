@@ -14,6 +14,8 @@ func TestWriteFixtures(t *testing.T) {
 	w("bot_ready_event", of[gw.BotReadyEvent])
 	w("space_create_event", of[gw.SpaceCreateEvent])
 	w("call_incoming_event", of[gw.CallIncomingEvent])
+	w("call_outgoing_event", of[gw.CallOutgoingEvent])
+	w("call_ongoing_event", of[gw.CallOngoingEvent])
 	w("call_member_event", of[gw.CallMemberEvent])
 	w("call_ended_event", of[gw.CallEndedEvent])
 	w("voice_joined_event", of[gw.VoiceJoinedEvent])

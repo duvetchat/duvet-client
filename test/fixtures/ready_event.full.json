@@ -34,6 +34,8 @@
     {
       "conversation_id": "s-string",
       "initiator_id": "s-string",
+      "initiator_name": "s-string",
+      "initiator_avatar": "s-string",
       "voice_states": [
         {
           "user_id": "s-string",
@@ -43,7 +45,9 @@
           "camera": true,
           "version": 2
         }
-      ]
+      ],
+      "ringing": true,
+      "answered": true
     }
   ],
   "ice_servers": [
