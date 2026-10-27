@@ -119,7 +119,8 @@ the new parameters and fields are optional.
   its socket) for each `close-with-reason`, before the socket closes and
   another one opens. `GatewayCloseCode` names the codes: `invalidShard`
   (4000), `notIdentified` (4003, also for a message the gateway can't read
-  before identify), `invalidCredentials` (4004), `alreadyIdentified` (4005),
+  before identify, and for a socket that hasn't identified 30 seconds after
+  it opened), `invalidCredentials` (4004), `alreadyIdentified` (4005),
   and `superseded` (4006: a newer socket of the client took its session
   over, so nothing needs doing). After 4000 no other socket opens, as the same
   shard options would be refused again: the client stays

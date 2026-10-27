@@ -182,9 +182,11 @@ abstract final class GatewayCloseCode {
   /// other socket until the app connects again.
   static const invalidShard = 4000;
 
-  /// Something other than identify or a heartbeat before identify, or a
-  /// message the gateway can't read before identify (`invalid identify`): one
-  /// that isn't JSON, or an identify whose data isn't one.
+  /// Something other than identify or a heartbeat before identify; a message
+  /// the gateway can't read before identify (`invalid identify`): one that
+  /// isn't JSON, or an identify whose data isn't one; or no identify in the
+  /// 30 seconds after the socket opened, which heartbeats don't extend
+  /// (`not identified`).
   static const notIdentified = 4003;
 
   /// The token isn't valid: unknown or expired at identify, revoked since (a
