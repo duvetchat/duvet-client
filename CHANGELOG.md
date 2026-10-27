@@ -174,6 +174,11 @@ the new parameters and fields are optional.
   next attempt to open a socket, so that it goes now: when the app comes back
   to the foreground, say, rather than waiting up to 30 seconds. It answers
   whether there was a wait.
+- **Upload progress:** `uploadProfileImage`, `updateSpace`, `createEmoji` and
+  `createSticker` take `onProgress`, as `sendMessage` does: it gets the bytes
+  of the request sent so far, and their total, so an app can show how far a
+  profile or space image, an emoji or a sticker has gone. An `updateSpace`
+  that sends JSON (no image to set or remove) reports it in one piece.
 
 ### Fixed
 
@@ -259,6 +264,9 @@ the new parameters and fields are optional.
   DM_RECORDING use `typing_event` and `dm_typing_event`: the API's `Recording`
   is `Typing`. Then `storage_transfer_update_event` (the API's) and
   `voice_video_refused_event` (the gateway's), the same way.
+- `test/requests_test.dart`: `uploadProfileImage`, `updateSpace` (with an
+  image, and as JSON), `createEmoji` and `createSticker` report their
+  upload's progress, piece by piece up to the whole body.
 
 ## 1.0.1 – 2026-10-23
 

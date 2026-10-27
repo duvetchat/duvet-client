@@ -90,6 +90,18 @@ class Sent {
   );
 }
 
+/// Checks what an upload's `onProgress` got ([progress]): the bytes of [sent]
+/// sent so far, growing piece by piece to all of them, and their total.
+void _expectProgress(List<(int, int)> progress, Sent sent) {
+  final total = sent.request.bodyBytes.length;
+  expect(progress.length, greaterThan(4));
+  expect(progress.map((p) => p.$2).toSet(), {total});
+  expect(progress.last, (total, total));
+  for (var i = 1; i < progress.length; i++) {
+    expect(progress[i].$1, greaterThan(progress[i - 1].$1));
+  }
+}
+
 void main() {
   group('headers', () {
     test('sends the access and session tokens', () async {
@@ -640,6 +652,23 @@ void main() {
           ['/api/spaces/s1/emojis', '/api/spaces/s1/stickers']);
     });
 
+    test('create reports the upload\'s progress', () async {
+      final dir = Directory.systemTemp.createTempSync('duvet_test');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final file = File('${dir.path}/cat.png')
+        ..writeAsBytesSync(List.filled(300 * 1024, 7));
+
+      final c = _client((_) => _asset);
+      final emoji = <(int, int)>[];
+      final sticker = <(int, int)>[];
+      await c.api.createEmoji('s1', 'cat', file,
+          onProgress: (sent, total) => emoji.add((sent, total)));
+      await c.api.createSticker('s1', 'cat', file,
+          onProgress: (sent, total) => sticker.add((sent, total)));
+      _expectProgress(emoji, c.sent[0]);
+      _expectProgress(sticker, c.sent[1]);
+    });
+
     test('list, update, delete', () async {
       final c = _client((s) => switch (s.method) {
             'GET' => [_asset],
@@ -724,6 +753,26 @@ void main() {
       expect(c.sent[1].contentType, startsWith('multipart/form-data'));
       expect(
           c.sent[1].request.body, contains('name="remove_icon"\r\n\r\ntrue'));
+    });
+
+    test('updateSpace reports the upload\'s progress, also as JSON', () async {
+      final dir = Directory.systemTemp.createTempSync('duvet_test');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final banner = File('${dir.path}/banner.png')
+        ..writeAsBytesSync(List.filled(300 * 1024, 7));
+
+      final c = _client((_) => {'id': 's1'});
+      final form = <(int, int)>[];
+      await c.api.updateSpace('s1',
+          banner: banner, onProgress: (sent, total) => form.add((sent, total)));
+      _expectProgress(form, c.sent[0]);
+
+      // A JSON body goes out in one piece.
+      final json = <(int, int)>[];
+      await c.api.updateSpace('s1',
+          name: 'N', onProgress: (sent, total) => json.add((sent, total)));
+      final length = c.sent[1].request.bodyBytes.length;
+      expect(json, [(length, length)]);
     });
 
     test('members are paged by highest role and ID', () async {
@@ -1068,6 +1117,22 @@ void main() {
       expect(body, contains('name="avatar_crop_y"\r\n\r\n3\r\n'));
       expect(body, contains('name="avatar"; filename="me.jpg"'));
       expect(body, contains('content-type: image/jpeg'));
+    });
+
+    test('uploadProfileImage reports the upload\'s progress', () async {
+      final c = _client((_) => {
+            'id': 'u1',
+            'username': 'me',
+            'created_at': _time,
+            'updated_at': _time,
+          });
+      final progress = <(int, int)>[];
+      await c.api.uploadProfileImage(ProfileImageKind.banner,
+          List.filled(300 * 1024, 7), 'me.png', (x: 0, y: 0, w: 500, h: 200),
+          onProgress: (sent, total) => progress.add((sent, total)));
+      _expectProgress(progress, c.sent.single);
+      expect(c.sent.single.request.body,
+          contains('name="banner"; filename="me.png"'));
     });
   });
 

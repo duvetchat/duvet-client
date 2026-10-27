@@ -185,6 +185,8 @@ mixin RestMethods {
 
   /// Updates the space. A new [banner] or [icon], or [removeBanner] or
   /// [removeIcon], sends a multipart form; anything else, JSON.
+  ///
+  /// [onProgress] gets the bytes of the request sent so far, and their total.
   Future<Map<String, dynamic>> updateSpace(
     String spaceId, {
     String? name,
@@ -194,26 +196,32 @@ mixin RestMethods {
     File? icon,
     bool removeBanner = false,
     bool removeIcon = false,
+    void Function(int sent, int total)? onProgress,
   }) async {
     final path = '/api/spaces/$spaceId';
     final http.Response response;
     if (banner != null || icon != null || removeBanner || removeIcon) {
-      response = await request('PATCH', path, 'update space', fields: {
-        if (name != null && name.isNotEmpty) 'name': name,
-        if (description != null) 'description': description,
-        if (locale != null) 'locale': locale,
-        if (removeBanner) 'remove_banner': 'true',
-        if (removeIcon) 'remove_icon': 'true',
-      }, files: [
-        if (banner != null) await _filePart('banner', banner),
-        if (icon != null) await _filePart('icon', icon),
-      ]);
+      response = await request('PATCH', path, 'update space',
+          fields: {
+            if (name != null && name.isNotEmpty) 'name': name,
+            if (description != null) 'description': description,
+            if (locale != null) 'locale': locale,
+            if (removeBanner) 'remove_banner': 'true',
+            if (removeIcon) 'remove_icon': 'true',
+          },
+          files: [
+            if (banner != null) await _filePart('banner', banner),
+            if (icon != null) await _filePart('icon', icon),
+          ],
+          onProgress: onProgress);
     } else {
-      response = await request('PATCH', path, 'update space', json: {
-        if (name != null) 'name': name,
-        if (description != null) 'description': description,
-        if (locale != null) 'locale': locale,
-      });
+      response = await request('PATCH', path, 'update space',
+          json: {
+            if (name != null) 'name': name,
+            if (description != null) 'description': description,
+            if (locale != null) 'locale': locale,
+          },
+          onProgress: onProgress);
     }
     return _decodeMap(response);
   }
@@ -643,10 +651,15 @@ mixin RestMethods {
     return _decodeList(response, SpaceEmoji.fromJson);
   }
 
-  Future<SpaceEmoji> createEmoji(String spaceId, String name, File file) async {
+  /// Adds an emoji named [name] to the space, with [file] as its image.
+  /// [onProgress] gets the bytes of the request sent so far, and their total.
+  Future<SpaceEmoji> createEmoji(String spaceId, String name, File file,
+      {void Function(int sent, int total)? onProgress}) async {
     final response = await request(
         'POST', '/api/spaces/$spaceId/emojis', 'create emoji',
-        fields: {'name': name}, files: [await _filePart('file', file)]);
+        fields: {'name': name},
+        files: [await _filePart('file', file)],
+        onProgress: onProgress);
     return SpaceEmoji.fromJson(_decodeMap(response));
   }
 
@@ -673,11 +686,15 @@ mixin RestMethods {
     return _decodeList(response, SpaceSticker.fromJson);
   }
 
-  Future<SpaceSticker> createSticker(
-      String spaceId, String name, File file) async {
+  /// Adds a sticker named [name] to the space, with [file] as its image.
+  /// [onProgress] gets the bytes of the request sent so far, and their total.
+  Future<SpaceSticker> createSticker(String spaceId, String name, File file,
+      {void Function(int sent, int total)? onProgress}) async {
     final response = await request(
         'POST', '/api/spaces/$spaceId/stickers', 'create sticker',
-        fields: {'name': name}, files: [await _filePart('file', file)]);
+        fields: {'name': name},
+        files: [await _filePart('file', file)],
+        onProgress: onProgress);
     return SpaceSticker.fromJson(_decodeMap(response));
   }
 
@@ -1210,24 +1227,26 @@ mixin RestMethods {
   }
 
   /// Sets the user's avatar or banner ([kind]) to the [crop] of an image.
+  ///
+  /// [onProgress] gets the bytes of the request sent so far, and their total.
   Future<UserMeResult> uploadProfileImage(
     ProfileImageKind kind,
     List<int> bytes,
     String filename,
-    ({num x, num y, num w, num h}) crop,
-  ) async {
+    ({num x, num y, num w, num h}) crop, {
+    void Function(int sent, int total)? onProgress,
+  }) async {
     final name = kind.name;
-    final response = await request(
-        'PATCH', '/api/users/@me', 'upload profile image',
-        fields: {
-          '${name}_crop_x': crop.x.round().toString(),
-          '${name}_crop_y': crop.y.round().toString(),
-          '${name}_crop_w': crop.w.round().toString(),
-          '${name}_crop_h': crop.h.round().toString(),
-        },
-        files: [
-          (field: name, bytes: bytes, filename: filename)
-        ]);
+    final response =
+        await request('PATCH', '/api/users/@me', 'upload profile image',
+            fields: {
+              '${name}_crop_x': crop.x.round().toString(),
+              '${name}_crop_y': crop.y.round().toString(),
+              '${name}_crop_w': crop.w.round().toString(),
+              '${name}_crop_h': crop.h.round().toString(),
+            },
+            files: [(field: name, bytes: bytes, filename: filename)],
+            onProgress: onProgress);
     return UserMeResult.fromJson(_decodeMap(response));
   }
 
