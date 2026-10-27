@@ -229,12 +229,12 @@ the new parameters and fields are optional.
 - Conversation members' statuses, in a conversation and in
   CONVERSATION_CREATE (offline as 0, and none from an older API), and
   CONVERSATION_MEMBER_ADD's (0, and left out). The fixtures `conversation` and
-  `conversation_member_row` come from api#65's branch,
-  `presence-for-conversations` (048b252), `conversation_member_row` now from
-  its `events.ConversationMember`: a member as the API hands them out, with
-  their status. Every other fixture `tool/fixtures/generate.sh` made from it
-  and from the gateway's `dev` (6ee07ae) came out unchanged, but READY's
-  `last_read_convs`, which is left out here.
+  `conversation_member_row` come from the API's `dev` (3e23b40, where api#86
+  merged), `conversation_member_row` now from its `events.ConversationMember`:
+  a member as the API hands them out, with their status. Every other fixture
+  `tool/fixtures/generate.sh` made from it and from the gateway's `dev`
+  (78b9af0) came out unchanged, but those of other changes, left out here:
+  READY's `last_read_convs` and the friends' banners (api#82).
 - The fixtures `user_update_event`, `user_me`, `ready_event` and
   `bot_ready_event` come from the unmerged branches that add these fields: the
   API's `space-delete-bio` (the bio) and `dnd-status` (the status), and the
