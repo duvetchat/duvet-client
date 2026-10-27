@@ -27,6 +27,10 @@ the new parameters and fields are optional.
   `CallOngoingPayloadEvent` (see "Added"). A `switch` over it without a
   default case has to handle them, and they no longer come as `UnknownEvent`s:
   code that read them by `type` and `rawData` has to match their own types.
+- `ConversationMemberAddEvent.statusId` is a `UserStatus?` (was `int?`), as
+  every other status is: code that read the number reads its `value`, or
+  compares it with `UserStatus.online` and the others. It's null in the same
+  cases as before.
 - **The package needs Dart 3.6** (it took 3.0): it reads the HTTP status of a
   refused upgrade from `WebSocketException.httpStatusCode`, which dart:io has
   since 3.6.
@@ -58,6 +62,16 @@ the new parameters and fields are optional.
   each friend (`status_id`), whether or not a space is shared with them, so an
   app can show it before USER_STATUS_UPDATE brings a change. Null from an API
   before it.
+- **Conversation members' statuses** (duvetchat/api#65):
+  `ConversationMember.statusId`, the status the API gives each member of a DM
+  or group wherever it hands them out (the conversations list,
+  CONVERSATION_CREATE, and what creating, renaming and adding answer;
+  `status_id`, offline as 0), whether or not a space or a friendship is shared
+  with them, so an app can show it before USER_STATUS_UPDATE brings a change.
+  Null from an API before it. CONVERSATION_MEMBER_ADD's
+  `ConversationMemberAddEvent.statusId`, the added member's, is a `UserStatus`
+  too now (see "Breaking changes"): an API before it leaves it out while
+  they're offline.
 - **Calls across devices** (duvetchat/gateway#25):
   - CALL_OUTGOING (`CallOutgoingPayloadEvent`, a `CallOutgoingEvent`): a call
     the user started, on each of their sessions, which rings none of them;
@@ -226,6 +240,15 @@ the new parameters and fields are optional.
   from the API (`friend` from its `serializers.Friend`), which also brought
   FRIEND_REQUEST_ACCEPT's `status_id` and replies' `mention_author` into the
   message fixtures.
+- Conversation members' statuses, in a conversation and in
+  CONVERSATION_CREATE (offline as 0, and none from an older API), and
+  CONVERSATION_MEMBER_ADD's (0, and left out). The fixtures `conversation` and
+  `conversation_member_row` come from the API's `dev` (3e23b40, where api#86
+  merged), `conversation_member_row` now from its `events.ConversationMember`:
+  a member as the API hands them out, with their status. Every other fixture
+  `tool/fixtures/generate.sh` made from it and from the gateway's `dev`
+  (78b9af0) came out unchanged, but those of other changes, left out here:
+  READY's `last_read_convs` and the friends' banners (api#82).
 - The fixtures `user_update_event`, `user_me`, `ready_event` and
   `bot_ready_event` come from the unmerged branches that add these fields: the
   API's `space-delete-bio` (the bio) and `dnd-status` (the status), and the

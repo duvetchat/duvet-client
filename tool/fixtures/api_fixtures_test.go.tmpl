@@ -44,7 +44,7 @@ func TestWriteFixtures(t *testing.T) {
 	})
 	w("space_member", of[q.GetMembersBySpaceIdPaginatedRow])
 	w("conversation", of[ev.ConversationCreate])
-	w("conversation_member_row", of[q.GetConversationMembersRow])
+	w("conversation_member_row", of[ev.ConversationMember])
 	w("conversation_member", of[q.ConversationMember])
 	w("friend", of[ser.Friend])
 	w("friend_request_row", of[q.GetPendingFriendRequestsRow])

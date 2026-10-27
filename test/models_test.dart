@@ -264,9 +264,13 @@ void main() {
 
   group('conversations and friends', () {
     _parses('conversation', Conversation.fromJson);
-    _parses('conversation_member_row', ConversationMember.fromJson);
+    // A member as the API hands them out: in a conversation, and as adding
+    // one answers, with their status.
+    _parses('conversation_member_row', ConversationMember.fromJson,
+        check: (m, _) => expect(m.statusId, UserStatus.dnd));
     // Answered by adding a member when the list doesn't have them yet.
-    _parses('conversation_member', ConversationMember.fromJson);
+    _parses('conversation_member', ConversationMember.fromJson,
+        check: (m, _) => expect(m.statusId, isNull));
     _parses('friend', Friend.fromJson,
         check: (f, _) => expect(f.statusId, UserStatus.dnd));
     test('a friend\'s status: none from an older API', () {
@@ -282,6 +286,16 @@ void main() {
       final c = Conversation.fromJson(
           _withNull(_load('conversation', 'full'), 'members'));
       expect(c.members, isEmpty);
+    });
+
+    test('members\' statuses, offline as 0; none from an older API', () {
+      final conversation = Conversation.fromJson(_load('conversation', 'full'));
+      expect(conversation.members.single.statusId, UserStatus.dnd);
+      final row = _load('conversation_member_row', 'full');
+      expect(ConversationMember.fromJson({...row, 'status_id': 0}).statusId,
+          UserStatus.offline);
+      expect(ConversationMember.fromJson(_without(row, 'status_id')).statusId,
+          isNull);
     });
 
     test('a member\'s and a DM\'s user: the whole public user, bio included',
@@ -740,6 +754,36 @@ void main() {
       final older = dispatch('CONVERSATION_UPDATE', _without(json, 'owner_id'))
           as ConversationUpdatedEvent;
       expect(older.data.ownerId, isNull);
+    });
+
+    test('CONVERSATION_CREATE: each member\'s status', () {
+      final json = _load('conversation', 'full');
+      final e =
+          dispatch('CONVERSATION_CREATE', json) as ConversationCreatedEvent;
+      expect(e.data.members.single.statusId, UserStatus.dnd);
+      final member = (json['members'] as List).single as Map<String, dynamic>;
+      final older = dispatch('CONVERSATION_CREATE', {
+        ...json,
+        'members': [_without(member, 'status_id')],
+      }) as ConversationCreatedEvent;
+      expect(older.data.members.single.statusId, isNull);
+    });
+
+    test('CONVERSATION_MEMBER_ADD: the added member\'s status, offline as 0',
+        () {
+      final json = _load('conversation_member_add_event', 'full');
+      final e = dispatch('CONVERSATION_MEMBER_ADD', json)
+          as ConversationMemberAddedEvent;
+      expect(e.data.statusId, UserStatus.dnd);
+      final offline =
+          dispatch('CONVERSATION_MEMBER_ADD', {...json, 'status_id': 0})
+              as ConversationMemberAddedEvent;
+      expect(offline.data.statusId, UserStatus.offline);
+      // An API before members' statuses leaves it out while they're offline.
+      final older =
+          dispatch('CONVERSATION_MEMBER_ADD', _without(json, 'status_id'))
+              as ConversationMemberAddedEvent;
+      expect(older.data.statusId, isNull);
     });
 
     test('FRIEND_REQUEST_ACCEPT: the new friend\'s status', () {
