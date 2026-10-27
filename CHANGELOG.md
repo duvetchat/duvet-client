@@ -118,8 +118,10 @@ the new parameters and fields are optional.
   client, gets a `GatewayCloseReason` (`code`, `reason`, and the `shardId` of
   its socket) for each `close-with-reason`, before the socket closes and
   another one opens. `GatewayCloseCode` names the codes: `invalidShard`
-  (4000), `notIdentified` (4003), `invalidCredentials` (4004),
-  `alreadyIdentified` (4005). After 4000 no other socket opens, as the same
+  (4000), `notIdentified` (4003, also for a message the gateway can't read
+  before identify), `invalidCredentials` (4004), `alreadyIdentified` (4005),
+  and `superseded` (4006: a newer socket of the client took its session
+  over, so nothing needs doing). After 4000 no other socket opens, as the same
   shard options would be refused again: the client stays
   `GatewayConnectionState.disconnected` until the app calls `connect()`. On
   4004 the desktop app asks the API about the session at once: a dead one

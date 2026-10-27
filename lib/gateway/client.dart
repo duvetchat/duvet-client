@@ -119,20 +119,22 @@ enum GatewayConnectionState {
 ///   one heard, each with its own sequence number, then the new ones, and no
 ///   READY. The session goes on: its token, its voice and calls. The client
 ///   tells it by [onResume], after those events.
-/// * when it can't (it hasn't noticed the drop yet, the 30 seconds are over,
-///   more than 500 events are missing, or it restarted), it starts a new
-///   session and sends READY, as without [resume]: what the old session got
-///   meanwhile is lost.
+/// * when it can't (the 30 seconds are over, more than 500 events are
+///   missing, or it restarted), it starts a new session and sends READY, as
+///   without [resume]: what the old session got meanwhile is lost.
+///
+/// A gateway that hasn't noticed the drop yet, and still holds the old socket
+/// open, resumes the session all the same and closes the old socket with
+/// [GatewayCloseCode.superseded]; it closes it too when the session can't be
+/// resumed.
 ///
 /// The gateway says nothing when it resumes, so the client asks: it sends a
 /// heartbeat right after the identify. The gateway handles a socket's
 /// messages in order, so its answer comes after READY when it started a new
-/// session, and after the events it replayed when it resumed. One case reads
-/// wrong: when the gateway's identify fails after it took the socket (a
-/// Redis error as it builds READY), it sends nothing yet answers the
-/// heartbeat, which the client takes for a resume. The gateway is to close
-/// such a socket, as it does one whose identify it can't check, and then
-/// another opens.
+/// session, and after the events it replayed when it resumed. When the
+/// gateway's identify fails after it took the socket (a Redis error as it
+/// builds READY), it closes the socket without a reason, as it does one
+/// whose identify it can't check, and another opens.
 ///
 /// Parse or protocol errors are pushed to [errors]. Both streams remain
 /// open across reconnect cycles and only close when [destroy] is called.
