@@ -163,6 +163,11 @@ the new parameters and fields are optional.
   it is now, and `GatewayEvents.onStorageTransferUpdate`.
 - READY's `guild_ids` (`GatewayReadyData.guildIds`): the spaces whose
   SPACE_CREATE follows, which the desktop app counts to know when all came.
+- READY's `last_read_convs` (`GatewayReadyData.lastReadConvs`,
+  duvetchat/gateway#28): each conversation's read position, by conversation
+  ID, as `lastReadRooms` has each room's. A conversation never marked read
+  isn't in it; null in a bot's READY and from a gateway before it. The
+  desktop app opens an unread conversation at its divider from it.
 - CONVERSATION_UPDATE's `owner_id` (`ConversationUpdateEvent.ownerId`), which
   changes when a group's owner leaves; FRIEND_REQUEST_ACCEPT's `status_id`
   (`FriendRequestAcceptEvent.statusId`), the new friend's status; and
@@ -268,6 +273,11 @@ the new parameters and fields are optional.
   DM_RECORDING use `typing_event` and `dm_typing_event`: the API's `Recording`
   is `Typing`. Then `storage_transfer_update_event` (the API's) and
   `voice_video_refused_event` (the gateway's), the same way.
+- READY's conversations' read positions: as the gateway sends them, none read
+  yet (empty), and none from an older gateway or in a bot's READY (null).
+  `ready_event` gains `last_read_convs`, made again by
+  `tool/fixtures/generate.sh` from the gateway's `dev` (78b9af0), whose other
+  fixtures came out unchanged.
 
 ## 1.0.1 – 2026-10-23
 

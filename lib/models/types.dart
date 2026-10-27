@@ -1531,6 +1531,14 @@ class GatewayReadyData {
   final Map<String, String>? lastReadRooms;
   final Map<String, String>? lastMsgRooms;
   final List<String>? unreadConvs;
+
+  /// Each conversation's read position, by conversation ID: the ID of the
+  /// last message the user marked read in it (`ackConversation`). A
+  /// conversation never marked read isn't in it, while null, in a bot's READY
+  /// and from a gateway before it, says nothing of any. The desktop app puts
+  /// an unread conversation's divider after its read position, above all its
+  /// messages when it was never read, and nowhere when this is null.
+  final Map<String, String>? lastReadConvs;
   final List<GatewayReadyActiveCall>? activeCalls;
   final List<GatewaySpace>? spaces;
 
@@ -1549,6 +1557,7 @@ class GatewayReadyData {
     this.lastReadRooms,
     this.lastMsgRooms,
     this.unreadConvs,
+    this.lastReadConvs,
     this.activeCalls,
     this.spaces,
     this.iceServers = const [],
@@ -1568,6 +1577,8 @@ class GatewayReadyData {
         unreadConvs = (j['unread_convs'] as List<dynamic>?)
             ?.map((e) => e as String)
             .toList(),
+        lastReadConvs = (j['last_read_convs'] as Map<String, dynamic>?)
+            ?.map((k, v) => MapEntry(k, v as String)),
         activeCalls = (j['active_calls'] as List<dynamic>?)
             ?.map((e) =>
                 GatewayReadyActiveCall.fromJson(e as Map<String, dynamic>))

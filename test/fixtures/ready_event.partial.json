@@ -20,6 +20,7 @@
   "last_read_rooms": {},
   "last_msg_rooms": {},
   "unread_convs": [],
+  "last_read_convs": {},
   "active_calls": [],
   "ice_servers": []
 }
