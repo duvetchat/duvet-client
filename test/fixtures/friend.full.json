@@ -6,5 +6,6 @@
   "user_username": "s-string",
   "user_alias": "s-string",
   "user_avatar": "s-string",
+  "user_banner": "s-string",
   "status_id": 2
 }

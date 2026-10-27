@@ -25,6 +25,14 @@
     (`GatewaySpaceCreatePayload.memberClientStatus`): the client status of
     each member `memberStatuses` has, by user ID; none from a gateway before
     it.
+- **The other user's banner and public profile** on friends and friend
+  requests (duvetchat/api#63, duvetchat/api#83): `Friend.userBanner` and
+  `FriendRequest.userBanner` (`user_banner`), `FriendRequestCreateEvent.banner`
+  (FRIEND_REQUEST_CREATE's `banner`), and on all three `user`, the user object
+  the API gives any user (a `GatewayUser`, as FRIEND_REQUEST_ACCEPT's), with
+  their bio, flags and badges. It carries no status, so its `statusId` reads
+  offline: a friend's is `Friend.statusId`. Each is null from an API that
+  leaves it out.
 
 ### Fixed
 
@@ -55,6 +63,15 @@
   older server; SPACE_CREATE's `member_client_status`, and none. The fixtures
   were made before the gateway's and the API's sides merged (gateway#50,
   api#99), so the tests add it.
+- Friends' and friend requests' banners and public profiles, and
+  FRIEND_REQUEST_CREATE's, each also left out. `friend`, `friend_request_row`
+  and `friend_request_create_event` were made again by
+  `tool/fixtures/generate.sh` from the API's `friend-public-profile`
+  (0695bdc: api#63's banners, in `dev` since api#82), which brought the
+  banners; every other fixture came out unchanged but READY's, whose
+  `last_read_convs` (from the gateway's `dev`, 6ee07ae) was left out here:
+  2.0.0 brought it. That branch had no `user` yet (api#83 merged later, as
+  api#98), so the tests add it as api#83 decided it: the API's user object.
 
 ## 2.0.0 – 2026-10-27
 

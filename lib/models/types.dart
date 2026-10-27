@@ -1352,6 +1352,16 @@ class FriendRequest {
   final String? userAlias;
   final String? userAvatar;
 
+  /// The other user's banner: null when they have none, and from an API
+  /// before it.
+  final String? userBanner;
+
+  /// The other user's public profile, the user object the API gives any user,
+  /// with their bio, flags and badges: the sender of a request received, the
+  /// recipient of one sent. It carries no status ([GatewayUser.statusId]
+  /// reads offline). Null from an API before it.
+  final GatewayUser? user;
+
   const FriendRequest({
     required this.id,
     required this.senderId,
@@ -1361,6 +1371,8 @@ class FriendRequest {
     this.userUsername,
     this.userAlias,
     this.userAvatar,
+    this.userBanner,
+    this.user,
   });
 
   FriendRequest.fromJson(Map<String, dynamic> j)
@@ -1371,7 +1383,11 @@ class FriendRequest {
         updatedAt = DateTime.parse(j['updated_at'] as String),
         userUsername = j['user_username'] as String?,
         userAlias = j['user_alias'] as String?,
-        userAvatar = j['user_avatar'] as String?;
+        userAvatar = j['user_avatar'] as String?,
+        userBanner = j['user_banner'] as String?,
+        user = j['user'] != null
+            ? GatewayUser.fromJson(j['user'] as Map<String, dynamic>)
+            : null;
 }
 
 class Friend {
@@ -1382,6 +1398,15 @@ class Friend {
   final String userUsername;
   final String? userAlias;
   final String? userAvatar;
+
+  /// The friend's banner: null when they have none, and from an API before
+  /// it.
+  final String? userBanner;
+
+  /// The friend's public profile, the user object the API gives any user,
+  /// with their bio, flags and badges. Its [GatewayUser.statusId] isn't
+  /// theirs (it reads offline): [statusId] is. Null from an API before it.
+  final GatewayUser? user;
 
   /// The friend's status as the list was read, whether or not a space is
   /// shared with them; USER_STATUS_UPDATE carries its changes. Null from an
@@ -1400,6 +1425,8 @@ class Friend {
     required this.userUsername,
     this.userAlias,
     this.userAvatar,
+    this.userBanner,
+    this.user,
     this.statusId,
     this.clientStatus,
   });
@@ -1412,6 +1439,10 @@ class Friend {
         userUsername = j['user_username'] as String,
         userAlias = j['user_alias'] as String?,
         userAvatar = j['user_avatar'] as String?,
+        userBanner = j['user_banner'] as String?,
+        user = j['user'] != null
+            ? GatewayUser.fromJson(j['user'] as Map<String, dynamic>)
+            : null,
         statusId = switch (j['status_id'] as int?) {
           final s? => UserStatus.fromInt(s),
           null => null,
@@ -1427,12 +1458,23 @@ class FriendRequestCreateEvent {
   final String? alias;
   final String? avatar;
 
+  /// The sender's banner: null when they have none, and from an API before
+  /// it.
+  final String? banner;
+
+  /// The sender's public profile, the user object the API gives any user,
+  /// with their bio, flags and badges. It carries no status
+  /// ([GatewayUser.statusId] reads offline). Null from an API before it.
+  final GatewayUser? user;
+
   const FriendRequestCreateEvent({
     required this.id,
     required this.senderId,
     required this.username,
     this.alias,
     this.avatar,
+    this.banner,
+    this.user,
   });
 
   FriendRequestCreateEvent.fromJson(Map<String, dynamic> j)
@@ -1440,7 +1482,11 @@ class FriendRequestCreateEvent {
         senderId = j['sender_id'] as String,
         username = j['username'] as String,
         alias = j['alias'] as String?,
-        avatar = j['avatar'] as String?;
+        avatar = j['avatar'] as String?,
+        banner = j['banner'] as String?,
+        user = j['user'] != null
+            ? GatewayUser.fromJson(j['user'] as Map<String, dynamic>)
+            : null;
 }
 
 /// FRIEND_REQUEST_ACCEPT: the friendship the request made.

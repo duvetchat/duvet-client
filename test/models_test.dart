@@ -279,6 +279,34 @@ void main() {
               .statusId,
           isNull);
     });
+    test('the other user\'s banner, and none from an older API', () {
+      final friend = _load('friend', 'full');
+      final request = _load('friend_request_row', 'full');
+      expect(Friend.fromJson(friend).userBanner, friend['user_banner']);
+      expect(
+          FriendRequest.fromJson(request).userBanner, request['user_banner']);
+      expect(Friend.fromJson(_load('friend', 'nulls')).userBanner, isNull);
+      expect(
+          Friend.fromJson(_without(friend, 'user_banner')).userBanner, isNull);
+      expect(
+          FriendRequest.fromJson(_without(request, 'user_banner')).userBanner,
+          isNull);
+    });
+    test('the other user\'s public profile, and none from an older API', () {
+      // The user object the API gives any user; the fixtures come from an API
+      // without it, so the test adds it.
+      final user = _load('user', 'full');
+      final friend =
+          Friend.fromJson({..._load('friend', 'full'), 'user': user}).user!;
+      expect((friend.id, friend.custom, friend.flags, friend.badges),
+          (user['id'], user['custom'], 2, 2));
+      final request = FriendRequest.fromJson(
+          {..._load('friend_request_row', 'full'), 'user': user}).user!;
+      expect((request.id, request.banner), (user['id'], user['banner']));
+      expect(Friend.fromJson(_load('friend', 'full')).user, isNull);
+      expect(FriendRequest.fromJson(_load('friend_request_row', 'full')).user,
+          isNull);
+    });
     _parses('friend_request_row', FriendRequest.fromJson);
     _parses('friend_request', FriendRequest.fromJson);
 
@@ -795,6 +823,18 @@ void main() {
           dispatch('FRIEND_REQUEST_ACCEPT', _without(json, 'status_id'))
               as FriendRequestAcceptedEvent;
       expect(older.data.statusId, isNull);
+    });
+
+    test('FRIEND_REQUEST_CREATE: the sender\'s banner and public profile', () {
+      final json = _load('friend_request_create_event', 'full');
+      final user = _load('user', 'full');
+      final e = dispatch('FRIEND_REQUEST_CREATE', {...json, 'user': user})
+          as FriendRequestCreatedEvent;
+      expect((e.data.banner, e.data.user?.id), (json['banner'], user['id']));
+      // An older API leaves both out.
+      final older = dispatch('FRIEND_REQUEST_CREATE', _without(json, 'banner'))
+          as FriendRequestCreatedEvent;
+      expect((older.data.banner, older.data.user), (null, null));
     });
 
     test('STORAGE_TRANSFER_UPDATE: the transfer as it is now', () {
