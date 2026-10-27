@@ -27,13 +27,13 @@ the new parameters and fields are optional.
   `CallOngoingPayloadEvent` (see "Added"). A `switch` over it without a
   default case has to handle them, and they no longer come as `UnknownEvent`s:
   code that read them by `type` and `rawData` has to match their own types.
-- **The package needs Dart 3.6** (it took 3.0): it reads the HTTP status of a
-  refused upgrade from `WebSocketException.httpStatusCode`, which dart:io has
-  since 3.6.
 - `ConversationMemberAddEvent.statusId` is a `UserStatus?` (was `int?`), as
   every other status is: code that read the number reads its `value`, or
   compares it with `UserStatus.online` and the others. It's null in the same
   cases as before.
+- **The package needs Dart 3.6** (it took 3.0): it reads the HTTP status of a
+  refused upgrade from `WebSocketException.httpStatusCode`, which dart:io has
+  since 3.6.
 
 ### Added
 
