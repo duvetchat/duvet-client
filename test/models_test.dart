@@ -264,9 +264,13 @@ void main() {
 
   group('conversations and friends', () {
     _parses('conversation', Conversation.fromJson);
-    _parses('conversation_member_row', ConversationMember.fromJson);
+    // A member as the API hands them out: in a conversation, and as adding
+    // one answers, with their status.
+    _parses('conversation_member_row', ConversationMember.fromJson,
+        check: (m, _) => expect(m.statusId, UserStatus.dnd));
     // Answered by adding a member when the list doesn't have them yet.
-    _parses('conversation_member', ConversationMember.fromJson);
+    _parses('conversation_member', ConversationMember.fromJson,
+        check: (m, _) => expect(m.statusId, isNull));
     _parses('friend', Friend.fromJson,
         check: (f, _) => expect(f.statusId, UserStatus.dnd));
     test('a friend\'s status: none from an older API', () {
@@ -285,22 +289,12 @@ void main() {
     });
 
     test('members\' statuses, offline as 0; none from an older API', () {
+      final conversation = Conversation.fromJson(_load('conversation', 'full'));
+      expect(conversation.members.single.statusId, UserStatus.dnd);
       final row = _load('conversation_member_row', 'full');
-      final conversation = Conversation.fromJson({
-        ..._load('conversation', 'full'),
-        'members': [
-          {...row, 'status_id': 2},
-          {...row, 'status_id': 0},
-          _without(row, 'status_id'),
-        ],
-      });
-      expect(conversation.members.map((m) => m.statusId),
-          [UserStatus.dnd, UserStatus.offline, null]);
-      // The bare member that adding one can answer.
-      final bare = _load('conversation_member', 'full');
-      expect(ConversationMember.fromJson({...bare, 'status_id': 1}).statusId,
-          UserStatus.online);
-      expect(ConversationMember.fromJson(_without(bare, 'status_id')).statusId,
+      expect(ConversationMember.fromJson({...row, 'status_id': 0}).statusId,
+          UserStatus.offline);
+      expect(ConversationMember.fromJson(_without(row, 'status_id')).statusId,
           isNull);
     });
 
@@ -740,14 +734,10 @@ void main() {
 
     test('CONVERSATION_CREATE: each member\'s status', () {
       final json = _load('conversation', 'full');
-      final member = (json['members'] as List).single as Map<String, dynamic>;
-      final e = dispatch('CONVERSATION_CREATE', {
-        ...json,
-        'members': [
-          {...member, 'status_id': 2}
-        ],
-      }) as ConversationCreatedEvent;
+      final e =
+          dispatch('CONVERSATION_CREATE', json) as ConversationCreatedEvent;
       expect(e.data.members.single.statusId, UserStatus.dnd);
+      final member = (json['members'] as List).single as Map<String, dynamic>;
       final older = dispatch('CONVERSATION_CREATE', {
         ...json,
         'members': [_without(member, 'status_id')],

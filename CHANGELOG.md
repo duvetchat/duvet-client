@@ -222,9 +222,13 @@ the new parameters and fields are optional.
   message fixtures.
 - Conversation members' statuses, in a conversation and in
   CONVERSATION_CREATE (offline as 0, and none from an older API), and
-  CONVERSATION_MEMBER_ADD's (0, and left out). The fixtures come from an API
-  without them (duvetchat/api#65 isn't merged), so the tests add `status_id`
-  to them.
+  CONVERSATION_MEMBER_ADD's (0, and left out). The fixtures `conversation` and
+  `conversation_member_row` come from api#65's branch,
+  `presence-for-conversations` (048b252), `conversation_member_row` now from
+  its `events.ConversationMember`: a member as the API hands them out, with
+  their status. Every other fixture `tool/fixtures/generate.sh` made from it
+  and from the gateway's `dev` (6ee07ae) came out unchanged, but READY's
+  `last_read_convs`, which is left out here.
 - The fixtures `user_update_event`, `user_me`, `ready_event` and
   `bot_ready_event` come from the unmerged branches that add these fields: the
   API's `space-delete-bio` (the bio) and `dnd-status` (the status), and the

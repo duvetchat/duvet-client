@@ -27,7 +27,8 @@
         "is_bot": true,
         "flags": 2,
         "badges": 2
-      }
+      },
+      "status_id": 2
     }
   ]
 }
