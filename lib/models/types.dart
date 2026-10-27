@@ -1155,7 +1155,7 @@ class ConversationMember {
   /// doesn't have them yet.
   final ConversationUser? user;
 
-  /// The member's status as the conversation was read, whether or not they
+  /// The member's status when the API handed them out, whether or not they
   /// share a space or a friendship with the user; USER_STATUS_UPDATE carries
   /// its changes. Null where the API leaves it out, as one from before
   /// conversation members' statuses does.
@@ -2417,10 +2417,10 @@ class ConversationMemberAddEvent {
   final String? avatar;
   final String? banner;
 
-  /// The added member's status, a [UserStatus]'s value (read it with
-  /// [UserStatus.fromInt]). Null where the API leaves it out, as one from
-  /// before conversation members' statuses does while they're offline.
-  final int? statusId;
+  /// The added member's status, as [ConversationMember.statusId] gives it.
+  /// Null where the API leaves it out, as one from before conversation
+  /// members' statuses does while they're offline.
+  final UserStatus? statusId;
   final GatewayUser? user;
   const ConversationMemberAddEvent({
     required this.conversationId,
@@ -2441,7 +2441,10 @@ class ConversationMemberAddEvent {
         alias = j['alias'] as String?,
         avatar = j['avatar'] as String?,
         banner = j['banner'] as String?,
-        statusId = j['status_id'] as int?,
+        statusId = switch (j['status_id'] as int?) {
+          final s? => UserStatus.fromInt(s),
+          null => null,
+        },
         user = j['user'] != null
             ? GatewayUser.fromJson(j['user'] as Map<String, dynamic>)
             : null;

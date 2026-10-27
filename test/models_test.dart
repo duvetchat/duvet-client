@@ -750,11 +750,11 @@ void main() {
       final json = _load('conversation_member_add_event', 'full');
       final e = dispatch('CONVERSATION_MEMBER_ADD', json)
           as ConversationMemberAddedEvent;
-      expect(UserStatus.fromInt(e.data.statusId!), UserStatus.dnd);
+      expect(e.data.statusId, UserStatus.dnd);
       final offline =
           dispatch('CONVERSATION_MEMBER_ADD', {...json, 'status_id': 0})
               as ConversationMemberAddedEvent;
-      expect(offline.data.statusId, 0);
+      expect(offline.data.statusId, UserStatus.offline);
       // An API before members' statuses leaves it out while they're offline.
       final older =
           dispatch('CONVERSATION_MEMBER_ADD', _without(json, 'status_id'))

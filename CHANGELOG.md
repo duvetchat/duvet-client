@@ -30,6 +30,10 @@ the new parameters and fields are optional.
 - **The package needs Dart 3.6** (it took 3.0): it reads the HTTP status of a
   refused upgrade from `WebSocketException.httpStatusCode`, which dart:io has
   since 3.6.
+- `ConversationMemberAddEvent.statusId` is a `UserStatus?` (was `int?`), as
+  every other status is: code that read the number reads its `value`, or
+  compares it with `UserStatus.online` and the others. It's null in the same
+  cases as before.
 
 ### Added
 
@@ -50,13 +54,15 @@ the new parameters and fields are optional.
   app can show it before USER_STATUS_UPDATE brings a change. Null from an API
   before it.
 - **Conversation members' statuses** (duvetchat/api#65):
-  `ConversationMember.statusId`, the status the conversations list and
-  CONVERSATION_CREATE give each member of a DM or group (`status_id`, offline
-  as 0), whether or not a space or a friendship is shared with them, so an app
-  can show it before USER_STATUS_UPDATE brings a change. Null from an API
-  before it. CONVERSATION_MEMBER_ADD's `ConversationMemberAddEvent.statusId`
-  already read the added member's, as a `UserStatus`'s value (an `int`): an
-  API before it leaves it out while they're offline.
+  `ConversationMember.statusId`, the status the API gives each member of a DM
+  or group wherever it hands them out (the conversations list,
+  CONVERSATION_CREATE, and what creating, renaming and adding answer;
+  `status_id`, offline as 0), whether or not a space or a friendship is shared
+  with them, so an app can show it before USER_STATUS_UPDATE brings a change.
+  Null from an API before it. CONVERSATION_MEMBER_ADD's
+  `ConversationMemberAddEvent.statusId`, the added member's, is a `UserStatus`
+  too now (see "Breaking changes"): an API before it leaves it out while
+  they're offline.
 - **Calls across devices** (duvetchat/gateway#25):
   - CALL_OUTGOING (`CallOutgoingPayloadEvent`, a `CallOutgoingEvent`): a call
     the user started, on each of their sessions, which rings none of them;
