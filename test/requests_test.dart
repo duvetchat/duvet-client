@@ -628,8 +628,12 @@ void main() {
       final file = File('${dir.path}/cat.webp')..writeAsBytesSync([1]);
 
       final c = _client((_) => _asset);
-      await c.api.createEmoji('s1', 'cat', file);
-      await c.api.createSticker('s1', 'cat', file);
+      final sent = <int>[];
+      await c.api
+          .createEmoji('s1', 'cat', file, onProgress: (s, _) => sent.add(s));
+      await c.api
+          .createSticker('s1', 'cat', file, onProgress: (s, _) => sent.add(s));
+      expect(sent.where((s) => s > 0), hasLength(greaterThanOrEqualTo(2)));
       for (final s in c.sent) {
         expect(s.contentType, startsWith('multipart/form-data'));
         expect(s.request.body, contains('name="name"\r\n\r\ncat'));
@@ -719,7 +723,11 @@ void main() {
     test('updateSpace sends JSON, or a form for images', () async {
       final c = _client((_) => {'id': 's1'});
       await c.api.updateSpace('s1', name: 'N');
-      await c.api.updateSpace('s1', removeIcon: true);
+      final sent = <(int, int)>[];
+      await c.api.updateSpace('s1',
+          removeIcon: true, onProgress: (s, t) => sent.add((s, t)));
+      final total = c.sent[1].request.bodyBytes.length;
+      expect(sent.last, (total, total));
       expect(c.sent[0].json, {'name': 'N'});
       expect(c.sent[1].contentType, startsWith('multipart/form-data'));
       expect(
@@ -1057,15 +1065,18 @@ void main() {
               .having((e) => e.body, 'body', body)));
     });
 
-    test('uploadProfileImage sends the crop', () async {
+    test('uploadProfileImage sends the image alone, with its progress',
+        () async {
       final c = _client((_) => http.Response('', 500));
+      final progress = <(int, int)>[];
       await expectLater(
           c.api.uploadProfileImage(ProfileImageKind.avatar, [1], 'me.jpg',
-              (x: 1.4, y: 2.6, w: 100, h: 100)),
+              onProgress: (sent, total) => progress.add((sent, total))),
           throwsA(isA<DuvetApiException>()));
       final body = c.sent.single.request.body;
-      expect(body, contains('name="avatar_crop_x"\r\n\r\n1\r\n'));
-      expect(body, contains('name="avatar_crop_y"\r\n\r\n3\r\n'));
+      expect(body, isNot(contains('_crop_')));
+      final total = c.sent.single.request.bodyBytes.length;
+      expect(progress.last, (total, total));
       expect(body, contains('name="avatar"; filename="me.jpg"'));
       expect(body, contains('content-type: image/jpeg'));
     });
