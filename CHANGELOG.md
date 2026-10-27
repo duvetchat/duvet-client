@@ -30,8 +30,17 @@ the new parameters and fields are optional.
 - **The package needs Dart 3.6** (it took 3.0): it reads the HTTP status of a
   refused upgrade from `WebSocketException.httpStatusCode`, which dart:io has
   since 3.6.
+- **`uploadProfileImage` takes no crop:** it sent the crop as
+  `<kind>_crop_x`, `_y`, `_w` and `_h` fields, which the API ignores, storing
+  the image whole. It now uploads the image as given, so crop it before: drop
+  the fourth argument.
 
 ### Added
+
+- **Upload progress beyond messages:** `uploadProfileImage`, `updateSpace`,
+  `createEmoji` and `createSticker` take an `onProgress` callback, as
+  `sendMessage` does, called with the bytes of the request sent so far and
+  their total.
 
 - **Bios:** `updateUser(custom:)` sets the bio. The API trims it and takes
   `maxBioLength` (190) characters at most, counted as code points (`runes`),
