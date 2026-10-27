@@ -49,6 +49,14 @@ the new parameters and fields are optional.
   each friend (`status_id`), whether or not a space is shared with them, so an
   app can show it before USER_STATUS_UPDATE brings a change. Null from an API
   before it.
+- **Conversation members' statuses** (duvetchat/api#65):
+  `ConversationMember.statusId`, the status the conversations list and
+  CONVERSATION_CREATE give each member of a DM or group (`status_id`, offline
+  as 0), whether or not a space or a friendship is shared with them, so an app
+  can show it before USER_STATUS_UPDATE brings a change. Null from an API
+  before it. CONVERSATION_MEMBER_ADD's `ConversationMemberAddEvent.statusId`
+  already read the added member's, as a `UserStatus`'s value (an `int`): an
+  API before it leaves it out while they're offline.
 - **Calls across devices** (duvetchat/gateway#25):
   - CALL_OUTGOING (`CallOutgoingPayloadEvent`, a `CallOutgoingEvent`): a call
     the user started, on each of their sessions, which rings none of them;
@@ -212,6 +220,11 @@ the new parameters and fields are optional.
   from the API (`friend` from its `serializers.Friend`), which also brought
   FRIEND_REQUEST_ACCEPT's `status_id` and replies' `mention_author` into the
   message fixtures.
+- Conversation members' statuses, in a conversation and in
+  CONVERSATION_CREATE (offline as 0, and none from an older API), and
+  CONVERSATION_MEMBER_ADD's (0, and left out). The fixtures come from an API
+  without them (duvetchat/api#65 isn't merged), so the tests add `status_id`
+  to them.
 - The fixtures `user_update_event`, `user_me`, `ready_event` and
   `bot_ready_event` come from the unmerged branches that add these fields: the
   API's `space-delete-bio` (the bio) and `dnd-status` (the status), and the
