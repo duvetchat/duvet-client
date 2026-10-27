@@ -182,7 +182,9 @@ abstract final class GatewayCloseCode {
   /// other socket until the app connects again.
   static const invalidShard = 4000;
 
-  /// Something other than identify or a heartbeat before identify.
+  /// Something other than identify or a heartbeat before identify, or a
+  /// message the gateway can't read before identify (`invalid identify`): one
+  /// that isn't JSON, or an identify whose data isn't one.
   static const notIdentified = 4003;
 
   /// The token isn't valid: unknown or expired at identify, revoked since (a
@@ -195,6 +197,13 @@ abstract final class GatewayCloseCode {
 
   /// A second identify on a socket that had identified.
   static const alreadyIdentified = 4005;
+
+  /// A newer socket of this client took its session over (`superseded`): it
+  /// resumed the session while the gateway still held this socket open, as
+  /// when a phone changes networks, or asked to and got a new session. The
+  /// client has moved to that socket already, so this one's close needs
+  /// nothing done.
+  static const superseded = 4006;
 }
 
 /// Why the gateway closes a socket, which it says just before it does
