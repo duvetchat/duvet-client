@@ -1,5 +1,31 @@
 ## Unreleased
 
+### Added
+
+- **Client status** (duvetchat/gateway#26, duvetchat/api#64): the platforms a
+  user is connected on, each with their status, so an app can show a phone
+  for someone connected only from the mobile app. Nothing breaks: a gateway
+  before it ignores the platform an identify gives, and a server before it
+  sends no client status, which reads as null.
+  - `GatewayManager(platform:)` and `GatewayClient(platform:)` give the
+    gateway what the app runs on, a `ClientPlatform` (`desktop`, `web` or
+    `mobile`), as identify's `platform`. Without one, as by default, the
+    gateway counts the connection as desktop, as it does every bot's.
+  - `ClientStatus` (`client_status`): each `ClientPlatform` the user is
+    connected on with their `UserStatus` (`platforms`, or `status[platform]`),
+    and `isMobileOnly`, true when the only one is the mobile app's.
+  - `clientStatus` on USER_STATUS_UPDATE (`GatewayUserStatusUpdate`), which
+    comes also when only the platforms change; on the friends list and an
+    accepted request (`Friend`, `FriendRequestAcceptEvent`); on
+    SPACE_MEMBER_ADD (`SpaceMemberEvent`), CONVERSATION_MEMBER_ADD
+    (`ConversationMemberAddEvent`) and conversation members
+    (`ConversationMember`). Null while the user is offline, and from a
+    server before it.
+  - SPACE_CREATE's `member_client_status`
+    (`GatewaySpaceCreatePayload.memberClientStatus`): the client status of
+    each member `memberStatuses` has, by user ID; none from a gateway before
+    it.
+
 ### Fixed
 
 - **`onResume` could come after its socket closed:** since 2.0.0 it comes in a
@@ -21,6 +47,13 @@
   `onResume`; with a close in that read too, no `onResume` comes until the
   next socket resumed. On the client and on the manager. `crypto` joins the
   dev dependencies, for the answer to the upgrade.
+- Client status: the app's platform in each identify (`test/gateway_test.dart`,
+  where a person's identify without one still carries none); `ClientStatus`
+  with several platforms, only mobile, one the package doesn't name, and
+  none; `client_status` on each payload that carries it, and none from an
+  older server; SPACE_CREATE's `member_client_status`, and none. The fixtures
+  were made before the gateway's and the API's sides merged (gateway#50,
+  api#99), so the tests add it.
 
 ## 2.0.0 – 2026-10-27
 

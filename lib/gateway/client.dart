@@ -159,6 +159,12 @@ class GatewayClient {
   /// each socket starts a new session, with READY.
   final bool resume;
 
+  /// What the app runs on, which each identify gives the gateway as
+  /// `platform`: the user's [ClientStatus] counts their connections on it.
+  /// Without one, as by default, the gateway counts the connection as
+  /// [ClientPlatform.desktop], as it does every bot's.
+  final ClientPlatform? platform;
+
   /// Broadcast stream of every decoded [GatewayEventPayload] received from
   /// the gateway, including the initial [ReadyEvent].
   ///
@@ -316,6 +322,7 @@ class GatewayClient {
     ApiRouter? router,
     this.connectTimeout = defaultConnectTimeout,
     this.resume = false,
+    this.platform,
   })  : _log = log ?? ((msg) => print('[gateway:shard-$shardId] $msg')),
         router = router ?? const ApiRouter();
 
@@ -674,6 +681,7 @@ class GatewayClient {
       if (resuming) 'session_token': session,
       // Only to shard: see the class's doc.
       if (shardCount > 1) ...{'shard_id': shardId, 'num_shards': shardCount},
+      if (platform case final platform?) 'platform': platform.value,
     };
     final sent = _send({'type': 'identify', 'data': data});
     _log('identify sent (shard=$shardId/$shardCount, seq=$_lastSeq'
