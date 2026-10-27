@@ -688,6 +688,30 @@ void main() {
       expect(older.data.user.status, isNull);
     });
 
+    test(
+        'READY: each conversation\'s read position; none from an older '
+        'gateway, nor for a bot', () {
+      final json = _load('ready_event', 'full');
+      final e = dispatch('READY', json) as ReadyEvent;
+      expect(e.data.lastReadConvs, json['last_read_convs']);
+      final read = dispatch('READY', {
+        ...json,
+        'last_read_convs': {'conversation-1': 'message-9'},
+      }) as ReadyEvent;
+      expect(read.data.lastReadConvs, {'conversation-1': 'message-9'});
+      // None read yet: empty, not null.
+      final none =
+          dispatch('READY', _load('ready_event', 'nulls')) as ReadyEvent;
+      expect(none.data.lastReadConvs, isEmpty);
+      // A gateway before it leaves it out.
+      final older =
+          dispatch('READY', _without(json, 'last_read_convs')) as ReadyEvent;
+      expect(older.data.lastReadConvs, isNull);
+      final bot =
+          dispatch('READY', _load('bot_ready_event', 'full')) as ReadyEvent;
+      expect(bot.data.lastReadConvs, isNull);
+    });
+
     test('USER_UPDATE carries the bio; an older API leaves it out', () {
       final json = _load('user_update_event', 'full');
       final e = dispatch('USER_UPDATE', json) as UserUpdatedEvent;
