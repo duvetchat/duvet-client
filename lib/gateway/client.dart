@@ -644,10 +644,13 @@ class GatewayClient {
       // In a later task: the replayed events still wait in [events]' queue
       // (one per microtask, and again through a GatewayManager), and a
       // listener would hear of the resume before the last of them.
+      final socket = _socket;
       Timer.run(() {
-        if (!_resumeController.isClosed) {
-          _resumeController.add(GatewayResume(shardId: shardId));
-        }
+        // Only while that socket is still the client's: once it closed (its
+        // close can come in the same read as the ack), a listener heard it
+        // drop, and would hear the session live with no socket open.
+        if (!identical(socket, _socket) || _resumeController.isClosed) return;
+        _resumeController.add(GatewayResume(shardId: shardId));
       });
     }
     if (_probing) {
