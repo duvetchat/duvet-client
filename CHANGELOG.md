@@ -48,7 +48,8 @@
   next socket resumed. On the client and on the manager. `crypto` joins the
   dev dependencies, for the answer to the upgrade.
 - Client status: the app's platform in each identify (`test/gateway_test.dart`,
-  where a person's identify without one still carries none); `ClientStatus`
+  where a person's identify without one still carries none), the one that asks
+  to resume included (`test/resume_test.dart`); `ClientStatus`
   with several platforms, only mobile, one the package doesn't name, and
   none; `client_status` on each payload that carries it, and none from an
   older server; SPACE_CREATE's `member_client_status`, and none. The fixtures
