@@ -18,5 +18,8 @@
     "flags": 2,
     "badges": 2
   },
-  "status_id": 2
+  "status_id": 2,
+  "client_status": {
+    "s-string": 2
+  }
 }

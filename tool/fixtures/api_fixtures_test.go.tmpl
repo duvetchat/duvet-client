@@ -47,7 +47,7 @@ func TestWriteFixtures(t *testing.T) {
 	w("conversation_member_row", of[ev.ConversationMember])
 	w("conversation_member", of[q.ConversationMember])
 	w("friend", of[ser.Friend])
-	w("friend_request_row", of[q.GetPendingFriendRequestsRow])
+	w("friend_request_row", of[ser.FriendRequest])
 	w("friend_request", of[q.FriendRequest])
 	w("space_commands", of[ser.SpaceCommandsResponse])
 	w("invite_info", of[svc.InviteInfoResult])
