@@ -28,6 +28,46 @@ final class UserStatus extends EnumLike<int, UserStatus> {
   }
 }
 
+/// What a client runs on, which it tells the gateway when it identifies
+/// (`GatewayClient.platform`): a user's [ClientStatus] says on which of them
+/// they're connected.
+final class ClientPlatform extends EnumLike<String, ClientPlatform> {
+  static const desktop = ClientPlatform('desktop');
+  static const web = ClientPlatform('web');
+  static const mobile = ClientPlatform('mobile');
+  const ClientPlatform(super.value);
+}
+
+/// A user's client status (`client_status`): each platform they're connected
+/// on, with their status there. A person shows one status, so each of their
+/// platforms has it; a bot's connections all count as
+/// [ClientPlatform.desktop], as does a client that doesn't say its platform.
+/// Servers leave it out while the user is offline, and ones from before it
+/// always do.
+class ClientStatus {
+  /// The user's status on each platform they're connected on. A platform this
+  /// package doesn't name is kept as the server gave it.
+  final Map<ClientPlatform, UserStatus> platforms;
+
+  const ClientStatus(this.platforms);
+
+  ClientStatus.fromJson(Map<String, dynamic> j)
+      : platforms = j.map((platform, status) => MapEntry(
+            ClientPlatform(platform), UserStatus.fromInt(status as int)));
+
+  /// The user's status on [platform], or null when they aren't connected
+  /// there.
+  UserStatus? operator [](ClientPlatform platform) => platforms[platform];
+
+  /// They're connected only from the mobile app: the apps show a phone for
+  /// them rather than the presence dot.
+  bool get isMobileOnly =>
+      platforms.length == 1 && platforms.containsKey(ClientPlatform.mobile);
+}
+
+ClientStatus? _clientStatus(Object? j) =>
+    j == null ? null : ClientStatus.fromJson(j as Map<String, dynamic>);
+
 final class RoomType extends EnumLike<int, RoomType> {
   static const text = RoomType(1);
   static const voice = RoomType(2);
@@ -1151,6 +1191,10 @@ class ConversationMember {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  /// The platforms the member is connected on, with their status. Null while
+  /// they're offline, and from a server before client statuses.
+  final ClientStatus? clientStatus;
+
   /// Null in the member that adding one answers when the conversation's list
   /// doesn't have them yet.
   final ConversationUser? user;
@@ -1167,6 +1211,7 @@ class ConversationMember {
     required this.userId,
     required this.createdAt,
     required this.updatedAt,
+    this.clientStatus,
     this.user,
     this.statusId,
   });
@@ -1177,6 +1222,7 @@ class ConversationMember {
         userId = j['user_id'] as String,
         createdAt = DateTime.parse(j['created_at'] as String),
         updatedAt = DateTime.parse(j['updated_at'] as String),
+        clientStatus = _clientStatus(j['client_status']),
         user = j['user'] != null
             ? ConversationUser.fromJson(j['user'] as Map<String, dynamic>)
             : null,
@@ -1342,6 +1388,10 @@ class Friend {
   /// API before friends' statuses.
   final UserStatus? statusId;
 
+  /// The platforms the friend is connected on, with their status. Null while
+  /// they're offline, and from an API before client statuses.
+  final ClientStatus? clientStatus;
+
   const Friend({
     required this.id,
     required this.requestId,
@@ -1351,6 +1401,7 @@ class Friend {
     this.userAlias,
     this.userAvatar,
     this.statusId,
+    this.clientStatus,
   });
 
   Friend.fromJson(Map<String, dynamic> j)
@@ -1364,7 +1415,8 @@ class Friend {
         statusId = switch (j['status_id'] as int?) {
           final s? => UserStatus.fromInt(s),
           null => null,
-        };
+        },
+        clientStatus = _clientStatus(j['client_status']);
 }
 
 /// FRIEND_REQUEST_CREATE: the request, with its sender's details.
@@ -1404,6 +1456,10 @@ class FriendRequestAcceptEvent {
   /// before it.
   final UserStatus? statusId;
 
+  /// The platforms [user] is connected on, with their status. Null while
+  /// they're offline, and from an API before client statuses.
+  final ClientStatus? clientStatus;
+
   const FriendRequestAcceptEvent({
     required this.id,
     required this.requestId,
@@ -1411,6 +1467,7 @@ class FriendRequestAcceptEvent {
     required this.recipientId,
     this.user,
     this.statusId,
+    this.clientStatus,
   });
 
   FriendRequestAcceptEvent.fromJson(Map<String, dynamic> j)
@@ -1424,7 +1481,8 @@ class FriendRequestAcceptEvent {
         statusId = switch (j['status_id'] as int?) {
           final s? => UserStatus.fromInt(s),
           null => null,
-        };
+        },
+        clientStatus = _clientStatus(j['client_status']);
 }
 
 // ---------------------------------------------------------------------------
@@ -1707,6 +1765,11 @@ class GatewaySpaceCreatePayload {
   /// presence to start from, which USER_STATUS_UPDATE keeps current.
   final Map<String, UserStatus> memberStatuses;
 
+  /// The client status of each member [memberStatuses] has, by user ID: the
+  /// platforms to start from, which USER_STATUS_UPDATE keeps current. None
+  /// from a gateway before client statuses.
+  final Map<String, ClientStatus> memberClientStatus;
+
   /// What the space's members connected now are doing, by user ID: the
   /// activities to start from, which USER_ACTIVITY_UPDATE keeps current.
   /// None in a bot's.
@@ -1721,6 +1784,7 @@ class GatewaySpaceCreatePayload {
     required this.ownerId,
     this.voiceStates,
     this.memberStatuses = const {},
+    this.memberClientStatus = const {},
     this.activities = const {},
   });
 
@@ -1747,6 +1811,10 @@ class GatewaySpaceCreatePayload {
             .toList(),
         memberStatuses = (j['member_statuses'] as Map<String, dynamic>? ?? {})
             .map((k, v) => MapEntry(k, UserStatus.fromInt(v as int))),
+        memberClientStatus =
+            (j['member_client_status'] as Map<String, dynamic>? ?? {}).map((k,
+                    v) =>
+                MapEntry(k, ClientStatus.fromJson(v as Map<String, dynamic>))),
         activities = (j['activities'] as Map<String, dynamic>? ?? {})
             .map((k, v) => MapEntry(k, _activities(v)));
 }
@@ -1774,13 +1842,22 @@ class GatewayUserStatusUpdate {
   /// that space (as the desktop app reads them). Null for a status that holds
   /// everywhere: a person's, or a bot's overall one.
   final String? spaceId;
+
+  /// The platforms the user is connected on now, with their status: a change
+  /// of platforms comes as an update too, with the same status. Null once
+  /// they're offline, and from a server before client statuses.
+  final ClientStatus? clientStatus;
   const GatewayUserStatusUpdate(
-      {required this.userId, required this.statusId, this.spaceId});
+      {required this.userId,
+      required this.statusId,
+      this.spaceId,
+      this.clientStatus});
 
   GatewayUserStatusUpdate.fromJson(Map<String, dynamic> j)
       : userId = j['user_id'] as String,
         statusId = UserStatus.fromInt(j['status_id'] as int),
-        spaceId = j['space_id'] as String?;
+        spaceId = j['space_id'] as String?,
+        clientStatus = _clientStatus(j['client_status']);
 }
 
 /// MESSAGE_PIN_UPDATE: a message of a room was pinned or unpinned. A pin also
@@ -2177,6 +2254,11 @@ class SpaceMemberEvent {
   /// SPACE_MEMBER_REMOVE.
   final UserStatus? statusId;
 
+  /// SPACE_MEMBER_ADD's: the platforms the new member is connected on, with
+  /// their status. Null while they're offline, in SPACE_MEMBER_REMOVE, and
+  /// from an API before client statuses.
+  final ClientStatus? clientStatus;
+
   /// SPACE_MEMBER_ADD's: the new member's user, when the API has it.
   final GatewayUser? user;
   const SpaceMemberEvent({
@@ -2184,6 +2266,7 @@ class SpaceMemberEvent {
     required this.spaceId,
     this.userId,
     this.statusId,
+    this.clientStatus,
     this.user,
   });
   SpaceMemberEvent.fromJson(Map<String, dynamic> j)
@@ -2194,6 +2277,7 @@ class SpaceMemberEvent {
           final s? => UserStatus.fromInt(s),
           null => null,
         },
+        clientStatus = _clientStatus(j['client_status']),
         user = j['user'] != null
             ? GatewayUser.fromJson(j['user'] as Map<String, dynamic>)
             : null;
@@ -2433,6 +2517,10 @@ class ConversationMemberAddEvent {
   /// members' statuses does while they're offline.
   final UserStatus? statusId;
   final GatewayUser? user;
+
+  /// The platforms the added member is connected on, with their status. Null
+  /// while they're offline, and from an API before client statuses.
+  final ClientStatus? clientStatus;
   const ConversationMemberAddEvent({
     required this.conversationId,
     required this.userId,
@@ -2443,6 +2531,7 @@ class ConversationMemberAddEvent {
     this.banner,
     this.statusId,
     this.user,
+    this.clientStatus,
   });
   ConversationMemberAddEvent.fromJson(Map<String, dynamic> j)
       : conversationId = j['conversation_id'] as String,
@@ -2458,7 +2547,8 @@ class ConversationMemberAddEvent {
         },
         user = j['user'] != null
             ? GatewayUser.fromJson(j['user'] as Map<String, dynamic>)
-            : null;
+            : null,
+        clientStatus = _clientStatus(j['client_status']);
 }
 
 class ConversationMemberRemoveEvent {

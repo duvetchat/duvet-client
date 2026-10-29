@@ -1134,4 +1134,74 @@ void main() {
           isA<CallEndedPayloadEvent>());
     });
   });
+
+  // client_status: the platforms a user is connected on, each with their
+  // status. The fixtures come from servers without it, so the tests add it.
+  group('client status', () {
+    test('each platform with its status; a phone only when just mobile', () {
+      final both = ClientStatus.fromJson({'desktop': 1, 'mobile': 1});
+      expect(both.platforms, {
+        ClientPlatform.desktop: UserStatus.online,
+        ClientPlatform.mobile: UserStatus.online,
+      });
+      expect((both[ClientPlatform.web], both.isMobileOnly), (null, false));
+
+      final mobile = ClientStatus.fromJson({'mobile': 2});
+      expect((mobile[ClientPlatform.mobile], mobile.isMobileOnly),
+          (UserStatus.dnd, true));
+      // A platform the package doesn't name is kept, and isn't mobile.
+      final other = ClientStatus.fromJson({'watch': 1});
+      expect(other[const ClientPlatform('watch')], UserStatus.online);
+      expect(other.isMobileOnly, isFalse);
+      expect(const ClientStatus({}).isMobileOnly, isFalse);
+    });
+
+    test('wherever a status goes, and none from an older server', () {
+      final reads = <String, ClientStatus? Function(Map<String, dynamic>)>{
+        'user_status_update_event': (j) =>
+            GatewayUserStatusUpdate.fromJson(j).clientStatus,
+        'friend': (j) => Friend.fromJson(j).clientStatus,
+        'friend_request_accept_event': (j) =>
+            FriendRequestAcceptEvent.fromJson(j).clientStatus,
+        'space_member_add_event': (j) =>
+            SpaceMemberEvent.fromJson(j).clientStatus,
+        'conversation_member_add_event': (j) =>
+            ConversationMemberAddEvent.fromJson(j).clientStatus,
+        'conversation_member_row': (j) =>
+            ConversationMember.fromJson(j).clientStatus,
+      };
+      for (final MapEntry(key: name, value: read) in reads.entries) {
+        final json = _load(name, 'full');
+        final status = read({
+          ...json,
+          'client_status': {'mobile': 1},
+        });
+        expect(status?.platforms, {ClientPlatform.mobile: UserStatus.online},
+            reason: name);
+        expect(status?.isMobileOnly, isTrue, reason: name);
+        // Left out while the user is offline, and by an older server.
+        expect(read(_without(json, 'client_status')), isNull, reason: name);
+      }
+    });
+
+    test('SPACE_CREATE: each connected member\'s, by user ID', () {
+      final json = _load('space_create_event', 'full');
+      final e = GatewaySpaceCreatePayload.fromJson({
+        ...json,
+        'member_client_status': {
+          'u1': {'desktop': 2, 'web': 2},
+          'u2': {'mobile': 1},
+        },
+      });
+      expect(e.memberClientStatus['u1']?.platforms, {
+        ClientPlatform.desktop: UserStatus.dnd,
+        ClientPlatform.web: UserStatus.dnd,
+      });
+      expect(e.memberClientStatus['u2']?.isMobileOnly, isTrue);
+      // None from a gateway before it.
+      final older = GatewaySpaceCreatePayload.fromJson(
+          _without(json, 'member_client_status'));
+      expect(older.memberClientStatus, isEmpty);
+    });
+  });
 }

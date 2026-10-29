@@ -184,12 +184,13 @@ void main() {
     addTearDown(gateway.close);
   });
 
-  GatewayClient client({bool resume = false}) {
+  GatewayClient client({bool resume = false, ClientPlatform? platform}) {
     final c = GatewayClient(
         RestClient(http.Client(), token: _token, router: gateway.router),
         router: gateway.router,
         log: (_) {},
-        resume: resume);
+        resume: resume,
+        platform: platform);
     addTearDown(c.destroy);
     return c;
   }
@@ -293,6 +294,28 @@ void main() {
     await resumed;
     expect(gateway.identified.last,
         {'token': _token, 'last_seq': 1, 'session_token': 'session-2'});
+  });
+
+  test('an identify that resumes says the app\'s platform too', () async {
+    // The gateway keeps a session's platform only when it resumes it: one it
+    // can't resume starts again with this identify's.
+    gateway.resumes = false;
+    final c = client(resume: true, platform: ClientPlatform.mobile);
+    final first = c.events.whereType<ReadyEvent>().first;
+    await c.connect();
+    await first;
+
+    final ready = c.events.whereType<ReadyEvent>().first;
+    await gateway.drop();
+    await ready;
+    expect(gateway.identified.last, {
+      'token': _token,
+      'last_seq': 1,
+      'session_token': 'session-1',
+      'platform': 'mobile',
+    });
+    // The heartbeat sent with the identify is answered before the test ends.
+    await gateway.heartbeatsCame(1);
   });
 
   test('wantFreshSession: the next socket starts a new session, then resumes',

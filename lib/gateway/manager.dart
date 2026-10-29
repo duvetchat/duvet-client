@@ -64,6 +64,11 @@ class GatewayManager with GatewayEvents {
   /// a READY.
   final bool resume;
 
+  /// What the app runs on, which each shard's identify gives the gateway
+  /// ([GatewayClient.platform]). Without one, as by default, the gateway
+  /// counts the connections as [ClientPlatform.desktop].
+  final ClientPlatform? platform;
+
   final List<GatewayClient> _shards = List.empty(growable: true);
   final List<StreamSubscription<dynamic>> _shardSubs =
       List.empty(growable: true);
@@ -78,6 +83,7 @@ class GatewayManager with GatewayEvents {
     ApiRouter? router,
     this.connectTimeout = defaultConnectTimeout,
     this.resume = false,
+    this.platform,
   })  : _log = log ?? defaultLog,
         router = router ?? const ApiRouter();
 
@@ -89,6 +95,7 @@ class GatewayManager with GatewayEvents {
     ApiRouter? router,
     this.connectTimeout = defaultConnectTimeout,
     this.resume = false,
+    this.platform,
   })  : api = RestClient(http.Client()),
         _log = log ?? defaultLog,
         router = router ?? const ApiRouter();
@@ -180,7 +187,8 @@ class GatewayManager with GatewayEvents {
         log: (msg) => _log(shardId, msg),
         router: router,
         connectTimeout: connectTimeout,
-        resume: resume);
+        resume: resume,
+        platform: platform);
 
     _shardSubs.addAll([
       client.events.listen(

@@ -251,6 +251,27 @@ void main() {
     expect(jitters.length, greaterThan(1));
   });
 
+  test('the app\'s platform goes in each identify', () async {
+    final manager = GatewayManager(
+        RestClient(http.Client(), token: _token, router: gateway.router),
+        router: gateway.router,
+        log: (_, __) {},
+        platform: ClientPlatform.mobile);
+    addTearDown(manager.destroy);
+    await manager.connectAll();
+    await gateway.identifies(1);
+
+    final reconnected = manager.onConnectionState
+        .where((s) => s == GatewayConnectionState.connected)
+        .first;
+    await gateway.open.single.close(); // the gateway drops it
+    await reconnected;
+    await gateway.identifies(2);
+    expect(gateway.identified.first, {'token': _token, 'platform': 'mobile'});
+    // The next socket's too.
+    expect(gateway.identified.map((i) => i['platform']), ['mobile', 'mobile']);
+  });
+
   test('a bot\'s shards send theirs in identify', () async {
     // The second shard's first attempt is refused.
     gateway.plan = (n) => n == 1 ? _Answer.unauthorized : _Answer.upgrade;
