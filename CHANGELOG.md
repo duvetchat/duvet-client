@@ -2,17 +2,14 @@
 
 ### Fixed
 
-- **`onResume` could come after its socket closed:** since 2.0.0 it comes in
-  a later task, once the events the gateway replayed went through, and a
-  socket that closed before that task ran still gave it, as one does when its
-  close comes in the same read as the heartbeat ack. A listener then heard
-  `reconnecting`, then the resume, and an app showed the session live with no
-  socket open. That happens when the gateway's identify fails after it took
-  the socket (it answers the heartbeat, then closes), on a
-  `close-with-reason`, and on a drop right after the resume. The resume comes
-  only if the socket that resumed is still the client's when that task runs:
-  otherwise the next socket asks to resume again, from the last event
-  replayed.
+- **`onResume` could come after its socket closed:** since 2.0.0 it comes in a
+  later task, once the events the gateway replayed went through, and a socket
+  that closed before that task ran still gave it. That happens when the
+  gateway's close frame comes in the same read as the heartbeat ack, as after a
+  `close-with-reason`. A listener then heard `reconnecting`, then the resume,
+  and an app showed the session live with no socket open. The resume comes only
+  if the socket that resumed is still the client's when that task runs:
+  otherwise the next socket asks to resume again, from the last event replayed.
 - `pubspec.yaml`'s `repository` is github.com/duvetchat/duvet-client, where
   the package lives: the codeberg.org one it named doesn't have 2.0.0.
 
