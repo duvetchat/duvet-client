@@ -641,9 +641,14 @@ class GatewayClient {
       // came first.
       _resuming = false;
       _log('session resumed (seq=$_lastSeq)');
-      if (!_resumeController.isClosed) {
-        _resumeController.add(GatewayResume(shardId: shardId));
-      }
+      // In a later task: the replayed events still wait in [events]' queue
+      // (one per microtask, and again through a GatewayManager), and a
+      // listener would hear of the resume before the last of them.
+      Timer.run(() {
+        if (!_resumeController.isClosed) {
+          _resumeController.add(GatewayResume(shardId: shardId));
+        }
+      });
     }
     if (_probing) {
       // The heartbeat sent with the identify: a periodic one may still wait
