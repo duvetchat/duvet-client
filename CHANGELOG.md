@@ -1,4 +1,4 @@
-## Unreleased
+## 2.0.0 – 2026-10-27
 
 Bios and the do-not-disturb status, for the API and gateway versions that bring
 them (not deployed yet). Nothing breaks: an older server leaves the new fields
