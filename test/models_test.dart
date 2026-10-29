@@ -279,6 +279,28 @@ void main() {
               .statusId,
           isNull);
     });
+    // A friend and a request as an API before the banners and the public
+    // profile (api#63, api#83) gave them.
+    const olderFriend = <String, dynamic>{
+      'id': 'f1',
+      'request_id': 'r1',
+      'sender_id': 'u1',
+      'recipient_id': 'u2',
+      'user_username': 'gaby',
+      'user_alias': null,
+      'user_avatar': null,
+      'status_id': 1,
+    };
+    const olderRequest = <String, dynamic>{
+      'id': 'r1',
+      'sender_id': 'u1',
+      'recipient_id': 'u2',
+      'created_at': '2026-10-22T10:00:00Z',
+      'updated_at': '2026-10-22T10:00:00Z',
+      'user_username': 'gaby',
+      'user_alias': null,
+      'user_avatar': null,
+    };
     test('the other user\'s banner, and none from an older API', () {
       final friend = _load('friend', 'full');
       final request = _load('friend_request_row', 'full');
@@ -287,25 +309,29 @@ void main() {
           FriendRequest.fromJson(request).userBanner, request['user_banner']);
       expect(Friend.fromJson(_load('friend', 'nulls')).userBanner, isNull);
       expect(
-          Friend.fromJson(_without(friend, 'user_banner')).userBanner, isNull);
-      expect(
-          FriendRequest.fromJson(_without(request, 'user_banner')).userBanner,
+          FriendRequest.fromJson(_load('friend_request_row', 'nulls'))
+              .userBanner,
           isNull);
+      expect(Friend.fromJson(olderFriend).userBanner, isNull);
+      expect(FriendRequest.fromJson(olderRequest).userBanner, isNull);
     });
     test('the other user\'s public profile, and none from an older API', () {
-      // The user object the API gives any user; the fixtures come from an API
-      // without it, so the test adds it.
-      final user = _load('user', 'full');
-      final friend =
-          Friend.fromJson({..._load('friend', 'full'), 'user': user}).user!;
-      expect((friend.id, friend.custom, friend.flags, friend.badges),
-          (user['id'], user['custom'], 2, 2));
-      final request = FriendRequest.fromJson(
-          {..._load('friend_request_row', 'full'), 'user': user}).user!;
-      expect((request.id, request.banner), (user['id'], user['banner']));
-      expect(Friend.fromJson(_load('friend', 'full')).user, isNull);
-      expect(FriendRequest.fromJson(_load('friend_request_row', 'full')).user,
-          isNull);
+      // The user object the API gives any user.
+      final json = _load('friend', 'full');
+      final user = json['user'] as Map<String, dynamic>;
+      final friend = Friend.fromJson(json);
+      final profile = friend.user!;
+      expect((profile.id, profile.custom, profile.flags, profile.badges),
+          (user['id'], user['custom'], user['flags'], user['badges']));
+      // It carries no status: the friend's is the list's.
+      expect((friend.statusId, profile.statusId),
+          (UserStatus.dnd, UserStatus.offline));
+      final request = _load('friend_request_row', 'full');
+      final other = request['user'] as Map<String, dynamic>;
+      final requested = FriendRequest.fromJson(request).user!;
+      expect((requested.id, requested.banner), (other['id'], other['banner']));
+      expect(Friend.fromJson(olderFriend).user, isNull);
+      expect(FriendRequest.fromJson(olderRequest).user, isNull);
     });
     _parses('friend_request_row', FriendRequest.fromJson);
     _parses('friend_request', FriendRequest.fromJson);
@@ -825,16 +851,54 @@ void main() {
       expect(older.data.statusId, isNull);
     });
 
-    test('FRIEND_REQUEST_CREATE: the sender\'s banner and public profile', () {
+    // FRIEND_REQUEST_CREATE as the API sends it to each side of a request
+    // from u1 to u2: the fixture, with the two users told apart.
+    FriendRequestCreateEvent requestCreated({required bool toSender}) {
       final json = _load('friend_request_create_event', 'full');
-      final user = _load('user', 'full');
-      final e = dispatch('FRIEND_REQUEST_CREATE', {...json, 'user': user})
-          as FriendRequestCreatedEvent;
-      expect((e.data.banner, e.data.user?.id), (json['banner'], user['id']));
-      // An older API leaves both out.
-      final older = dispatch('FRIEND_REQUEST_CREATE', _without(json, 'banner'))
-          as FriendRequestCreatedEvent;
-      expect((older.data.banner, older.data.user), (null, null));
+      return (dispatch('FRIEND_REQUEST_CREATE', {
+        ...json,
+        'sender_id': 'u1',
+        'recipient_id': 'u2',
+        'username': 'sender',
+        'banner': 'sender-banner',
+        'user': {
+          ...json['user'] as Map<String, dynamic>,
+          'id': toSender ? 'u2' : 'u1',
+          'username': toSender ? 'recipient' : 'sender',
+        },
+      }) as FriendRequestCreatedEvent)
+          .data;
+    }
+
+    test('FRIEND_REQUEST_CREATE to the recipient: the sender, as user too', () {
+      final e = requestCreated(toSender: false);
+      expect((e.senderId, e.recipientId, e.username, e.banner),
+          ('u1', 'u2', 'sender', 'sender-banner'));
+      expect((e.user?.id, e.user?.username), ('u1', 'sender'));
+    });
+
+    test(
+        'FRIEND_REQUEST_CREATE to the sender\'s sessions: the recipient as '
+        'user, the sender in the rest', () {
+      final e = requestCreated(toSender: true);
+      expect((e.senderId, e.recipientId, e.username, e.banner),
+          ('u1', 'u2', 'sender', 'sender-banner'));
+      expect((e.user?.id, e.user?.username), ('u2', 'recipient'));
+    });
+
+    test(
+        'FRIEND_REQUEST_CREATE from an older API: no recipient, banner or user',
+        () {
+      final e = (dispatch('FRIEND_REQUEST_CREATE', {
+        'id': 'r1',
+        'sender_id': 'u1',
+        'username': 'gaby',
+        'alias': null,
+        'avatar': null,
+      }) as FriendRequestCreatedEvent)
+          .data;
+      expect((e.senderId, e.recipientId, e.banner, e.user),
+          ('u1', null, null, null));
     });
 
     test('STORAGE_TRANSFER_UPDATE: the transfer as it is now', () {

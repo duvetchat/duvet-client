@@ -33,6 +33,14 @@
   their bio, flags and badges. It carries no status, so its `statusId` reads
   offline: a friend's is `Friend.statusId`. Each is null from an API that
   leaves it out.
+- **FRIEND_REQUEST_CREATE's two sides:** the API sends it to the recipient's
+  sessions and to the sender's own, which add it to their sent requests.
+  `FriendRequestCreateEvent.recipientId` (`recipient_id`) is the user the
+  request went to, and `user` is the other side's: the sender for the
+  recipient, the recipient for the sender's sessions. `username`, `alias`,
+  `avatar` and `banner` are the sender's in both, and a copy whose
+  `senderId` is the user's own is the sender's. `recipientId` is null from an
+  API before it.
 
 ### Fixed
 
@@ -60,18 +68,23 @@
   to resume included (`test/resume_test.dart`); `ClientStatus`
   with several platforms, only mobile, one the package doesn't name, and
   none; `client_status` on each payload that carries it, and none from an
-  older server; SPACE_CREATE's `member_client_status`, and none. The fixtures
-  were made before the gateway's and the API's sides merged (gateway#50,
-  api#99), so the tests add it.
-- Friends' and friend requests' banners and public profiles, and
-  FRIEND_REQUEST_CREATE's, each also left out. `friend`, `friend_request_row`
-  and `friend_request_create_event` were made again by
-  `tool/fixtures/generate.sh` from the API's `friend-public-profile`
-  (0695bdc: api#63's banners, in `dev` since api#82), which brought the
-  banners; every other fixture came out unchanged but READY's, whose
-  `last_read_convs` (from the gateway's `dev`, 6ee07ae) was left out here:
-  2.0.0 brought it. That branch had no `user` yet (api#83 merged later, as
-  api#98), so the tests add it as api#83 decided it: the API's user object.
+  older server; SPACE_CREATE's `member_client_status`, and none. Most
+  fixtures were made before the gateway's and the API's sides merged
+  (gateway#50, api#99), so the tests add it; `friend` and
+  `friend_request_accept_event`, made again since (below), have it with the
+  generator's placeholder platform, which the tests replace.
+- Friends' and friend requests' banners and public profiles, each side's
+  copy of FRIEND_REQUEST_CREATE (its `recipient_id`, and the other side as
+  `user`), and none of them from an older API, whose JSON the tests write
+  out. `friend`, `friend_request_row`, `friend_request_create_event` and
+  `friend_request_accept_event` were made again by `tool/fixtures/generate.sh`
+  from the API's `dev` (93883e1, where api#82 and api#98 merged) and the
+  gateway's (11c7db1). `friend_request_row` is now made from the API's
+  `serializers.FriendRequest`, what the request lists answer since api#98,
+  rather than from the database row. `friend` and FRIEND_REQUEST_ACCEPT's
+  also gain the friend's `client_status`, which the client status tests
+  replace with their own. The other fixtures the generator changes belong to
+  other changes, and are left out.
 
 ## 2.0.0 – 2026-10-27
 

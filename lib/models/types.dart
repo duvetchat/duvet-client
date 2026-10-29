@@ -1450,10 +1450,19 @@ class Friend {
         clientStatus = _clientStatus(j['client_status']);
 }
 
-/// FRIEND_REQUEST_CREATE: the request, with its sender's details.
+/// FRIEND_REQUEST_CREATE: a friend request was sent. Both sides get it: the
+/// recipient's sessions, and the sender's own, which add it to their sent
+/// requests. The two copies differ only in [user]; a copy whose [senderId] is
+/// the user's own is the sender's.
 class FriendRequestCreateEvent {
   final String id;
   final String senderId;
+
+  /// The user the request was sent to. Null from an API before it.
+  final String? recipientId;
+
+  /// The sender's username, in both copies, as [alias], [avatar] and [banner]
+  /// are theirs.
   final String username;
   final String? alias;
   final String? avatar;
@@ -1462,9 +1471,11 @@ class FriendRequestCreateEvent {
   /// it.
   final String? banner;
 
-  /// The sender's public profile, the user object the API gives any user,
-  /// with their bio, flags and badges. It carries no status
-  /// ([GatewayUser.statusId] reads offline). Null from an API before it.
+  /// The other side's public profile, the user object the API gives any
+  /// user, with their bio, flags and badges: the sender's in the copy the
+  /// recipient gets, the recipient's in the copy the sender's sessions get.
+  /// It carries no status ([GatewayUser.statusId] reads offline). Null from
+  /// an API before it.
   final GatewayUser? user;
 
   const FriendRequestCreateEvent({
@@ -1475,11 +1486,13 @@ class FriendRequestCreateEvent {
     this.avatar,
     this.banner,
     this.user,
+    this.recipientId,
   });
 
   FriendRequestCreateEvent.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
         senderId = j['sender_id'] as String,
+        recipientId = j['recipient_id'] as String?,
         username = j['username'] as String,
         alias = j['alias'] as String?,
         avatar = j['avatar'] as String?,
