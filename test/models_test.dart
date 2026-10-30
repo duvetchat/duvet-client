@@ -211,6 +211,7 @@ void main() {
   group('spaces', () {
     _parses('space', GatewaySpace.fromJson);
     _parses('room', GatewayRoom.fromJson);
+    _parses('room_read_state', RoomReadState.fromJson);
     _parses('role', GatewayRole.fromJson);
     _parses('room_overwrite', GatewayRoomOverwrite.fromJson);
     _parses('invite_link', InviteLink.fromJson);
@@ -966,6 +967,36 @@ void main() {
           dispatch('SPACE_CREATE', _load('space_create_event', 'nulls'))
               as SpaceCreateEvent;
       expect(nulls.data.memberStatuses, isEmpty);
+    });
+
+    test('SPACE_CREATE: the rooms\' read states, none when left out', () {
+      final full = dispatch('SPACE_CREATE', _load('space_create_event', 'full'))
+          as SpaceCreateEvent;
+      final state =
+          full.data.readStates['12020202-0202-7002-8002-020202020202']!;
+      expect((
+        state.unread,
+        state.lastRead,
+        state.lastMsg
+      ), (
+        true,
+        '10020202-0202-7002-8002-020202020202',
+        '11020202-0202-7002-8002-020202020202'
+      ));
+      // READY's own and a bot's leave them out.
+      final nulls =
+          dispatch('SPACE_CREATE', _load('space_create_event', 'nulls'))
+              as SpaceCreateEvent;
+      expect(nulls.data.readStates, isEmpty);
+    });
+
+    test('ROOM_CREATE: the room\'s read state, null when left out', () {
+      final full =
+          dispatch('ROOM_CREATE', _load('room', 'full')) as RoomCreateEvent;
+      expect(full.data.readState?.unread, isTrue);
+      final nulls =
+          dispatch('ROOM_CREATE', _load('room', 'nulls')) as RoomCreateEvent;
+      expect(nulls.data.readState, isNull);
     });
 
     test('mentions carry their message and author', () {

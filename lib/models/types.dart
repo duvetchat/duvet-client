@@ -853,6 +853,12 @@ class GatewayRoom {
   final DateTime updatedAt;
   final DateTime? deletedAt;
 
+  /// The user's read state in the room, on a ROOM_CREATE for a room they can
+  /// view since a change, which READY didn't have. Null on a container's, a
+  /// bot's, ROOM_UPDATE and when the gateway couldn't read it: it doesn't say
+  /// the room is read.
+  final RoomReadState? readState;
+
   const GatewayRoom({
     required this.id,
     this.spaceId,
@@ -865,6 +871,7 @@ class GatewayRoom {
     required this.createdAt,
     required this.updatedAt,
     this.deletedAt,
+    this.readState,
   });
 
   GatewayRoom.fromJson(Map<String, dynamic> j)
@@ -880,7 +887,30 @@ class GatewayRoom {
         updatedAt = DateTime.parse(j['updated_at'] as String),
         deletedAt = j['deleted_at'] != null
             ? DateTime.parse(j['deleted_at'] as String)
+            : null,
+        readState = j['read_state'] != null
+            ? RoomReadState.fromJson(j['read_state'] as Map<String, dynamic>)
             : null;
+}
+
+/// A user's read state in a room, as READY's `unread_rooms`,
+/// `last_read_rooms` and `last_msg_rooms` give it for the rooms READY sends.
+class RoomReadState {
+  /// The room has a message the user hasn't read.
+  final bool unread;
+
+  /// The last message the user read in the room; null when never read.
+  final String? lastRead;
+
+  /// The room's newest message; null when it has none.
+  final String? lastMsg;
+
+  const RoomReadState({required this.unread, this.lastRead, this.lastMsg});
+
+  RoomReadState.fromJson(Map<String, dynamic> j)
+      : unread = j['unread'] as bool? ?? false,
+        lastRead = j['last_read'] as String?,
+        lastMsg = j['last_msg'] as String?;
 }
 
 // ---------------------------------------------------------------------------
@@ -1834,6 +1864,12 @@ class GatewaySpaceCreatePayload {
   /// None in a bot's.
   final Map<String, List<Activity>> activities;
 
+  /// The user's read state in each room of the space they can view, by room
+  /// ID, on a SPACE_CREATE sent after READY (a space joined, created or
+  /// retried). None on READY's own, a bot's, when the gateway couldn't read
+  /// it, or when they can view no room: that doesn't say the rooms are read.
+  final Map<String, RoomReadState> readStates;
+
   const GatewaySpaceCreatePayload({
     required this.space,
     required this.rooms,
@@ -1845,6 +1881,7 @@ class GatewaySpaceCreatePayload {
     this.memberStatuses = const {},
     this.memberClientStatus = const {},
     this.activities = const {},
+    this.readStates = const {},
   });
 
   GatewaySpaceCreatePayload.fromJson(Map<String, dynamic> j)
@@ -1875,7 +1912,10 @@ class GatewaySpaceCreatePayload {
                     v) =>
                 MapEntry(k, ClientStatus.fromJson(v as Map<String, dynamic>))),
         activities = (j['activities'] as Map<String, dynamic>? ?? {})
-            .map((k, v) => MapEntry(k, _activities(v)));
+            .map((k, v) => MapEntry(k, _activities(v))),
+        readStates = (j['read_states'] as Map<String, dynamic>? ?? {}).map(
+            (k, v) =>
+                MapEntry(k, RoomReadState.fromJson(v as Map<String, dynamic>)));
 }
 
 // ---------------------------------------------------------------------------
