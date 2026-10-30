@@ -1,6 +1,6 @@
 name: duvet_client
 description: Dart client library for the Duvet API.
-version: 2.0.0
+version: 2.1.0
 repository: https://github.com/duvetchat/duvet-client
 homepage: https://github.com/duvetchat
  
