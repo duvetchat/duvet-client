@@ -25,6 +25,13 @@
     (`GatewaySpaceCreatePayload.memberClientStatus`): the client status of
     each member `memberStatuses` has, by user ID; none from a gateway before
     it.
+- **Rooms' read states after READY** (duvetchat/gateway#84,
+  duvetchat/gateway#88): `RoomReadState` (`unread`, `lastRead`, `lastMsg`),
+  as READY's `unread_rooms`, `last_read_rooms` and `last_msg_rooms` give it.
+  ROOM_CREATE's `read_state` (`GatewayRoom.readState`), for a room the user
+  can view since a change, and a later SPACE_CREATE's `read_states`
+  (`GatewaySpaceCreatePayload.readStates`), by room ID. Null and empty when
+  left out, which doesn't say the rooms are read.
 - **The other user's banner and public profile** on friends and friend
   requests (duvetchat/api#63, duvetchat/api#83): `Friend.userBanner` and
   `FriendRequest.userBanner` (`user_banner`), `FriendRequestCreateEvent.banner`
