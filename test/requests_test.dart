@@ -1025,10 +1025,16 @@ void main() {
       await c.api.updateUser(alias: 'Me', custom: 'Hi 👋');
       // An empty bio clears it; left out, it stays.
       await c.api.updateUser(custom: '');
+      await c.api.updateUser(clearAvatar: true);
+      await c.api.updateUser(clearBanner: true);
+      await c.api.updateUser(avatar: 'a.png', banner: 'b.png');
       expect(c.sent[0].json, {'username': 'me'});
       expect(c.sent[1].json, {'alias': null});
       expect(c.sent[2].json, {'alias': 'Me', 'custom': 'Hi 👋'});
       expect(c.sent[3].json, {'custom': ''});
+      expect(c.sent[4].json, {'avatar': null});
+      expect(c.sent[5].json, {'banner': null});
+      expect(c.sent[6].json, {'avatar': 'a.png', 'banner': 'b.png'});
     });
 
     test('setStatus chooses online or do not disturb', () async {

@@ -1182,7 +1182,8 @@ mixin RestMethods {
 
   /// Updates the user. Only the arguments given are sent, and the API keeps
   /// what's left out, but an API from before bios clears the alias when it's
-  /// left out: send it to keep it. [clearAlias] sends null for the alias.
+  /// left out: send it to keep it. [clearAlias] sends null for the alias, and
+  /// [clearAvatar] and [clearBanner] send null, which removes the picture.
   /// [custom] is the bio: the API trims it and takes [maxBioLength] characters
   /// at most (a 400 past that), and an empty one clears it. An API from before
   /// bios ignores it, and answers the bio it had.
@@ -1191,15 +1192,17 @@ mixin RestMethods {
     String? alias,
     bool clearAlias = false,
     String? avatar,
+    bool clearAvatar = false,
     String? banner,
+    bool clearBanner = false,
     String? custom,
   }) async {
     final response =
         await request('PATCH', '/api/users/@me', 'update user', json: {
       if (username != null) 'username': username,
       if (alias != null || clearAlias) 'alias': alias,
-      if (avatar != null) 'avatar': avatar,
-      if (banner != null) 'banner': banner,
+      if (avatar != null || clearAvatar) 'avatar': avatar,
+      if (banner != null || clearBanner) 'banner': banner,
       if (custom != null) 'custom': custom,
     });
     return UserMeResult.fromJson(_decodeMap(response));
