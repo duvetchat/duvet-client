@@ -1,3 +1,15 @@
+## 2.2.0 – 2026-11-01
+
+### Added
+
+- **Removing the avatar and banner** (duvetchat/mobile#22):
+  `updateUser(clearAvatar:)` and `updateUser(clearBanner:)` send null for the
+  picture, as `clearAlias` does for the alias, and the API removes it.
+
+### Tests
+
+- What `updateUser` sends to remove the avatar and banner.
+
 ## 2.1.0 – 2026-10-30
 
 ### Added
