@@ -240,5 +240,12 @@
     "original_response_message_id": "12020202-0202-7002-8002-020202020202",
     "name": "s-string"
   },
-  "ref_mention_author": true
+  "ref_mention_author": true,
+  "call": {
+    "participants": [
+      "12020202-0202-7002-8002-020202020202"
+    ],
+    "started_at": "2026-10-22T10:00:00.123456789Z",
+    "ended_at": "2026-10-22T10:00:00.123456789Z"
+  }
 }
