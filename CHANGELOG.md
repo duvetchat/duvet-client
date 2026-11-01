@@ -13,8 +13,8 @@
   every other message. The API leaves the conversation read, up to the
   notice, for the participants and for whoever answered the call from a
   device (CALL_ACCEPTED or CALL_DECLINED with their own ID): an app that
-  marks a conversation unread on DM_MESSAGE_CREATE leaves it read for them
-  too.
+  marks a conversation unread on DM_MESSAGE_CREATE should leave it read for
+  them too.
 
 ### Tests
 
@@ -23,7 +23,7 @@
   `message_response`, `thread_message`, `message_search` and `message_model`
   gain `call`, and nothing else: they were made again by
   `tool/fixtures/generate.sh` from api#134's branch, `call-notices`
-  (d12e6b1), and the gateway's (bced2c8). The other fixtures the generator
+  (a92f6c3), and the gateway's (bced2c8). The other fixtures the generator
   changes belong to other changes, and are left out.
 
 ## 2.2.0 – 2026-11-01

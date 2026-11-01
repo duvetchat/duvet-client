@@ -1318,8 +1318,10 @@ class CallNotice {
   /// whoever did never joined its voice.
   final List<String> participants;
 
-  /// When the call started (it began to ring) and when it ended.
+  /// When the call started: when it began to ring.
   final DateTime startedAt;
+
+  /// When the call ended.
   final DateTime endedAt;
 
   const CallNotice({
