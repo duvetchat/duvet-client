@@ -1,3 +1,31 @@
+## Unreleased
+
+### Added
+
+- **Call notices** (duvetchat/api#134, duvetchat/gateway#108): once a call in
+  a conversation ends, the API posts a message of type 3 in it,
+  `MessageType.call`, by the caller and without content. Its `call`
+  (`DirectMessage.call`, a `CallNotice`) says who was in the call and when:
+  `participants`, the caller first, then each member who joined its voice
+  (the caller alone: nobody else got in), and `startedAt`, `endedAt` and
+  `duration`, ringing included. It comes wherever a conversation's messages
+  do: DM_MESSAGE_CREATE, the history, a message alone and a thread. Null on
+  every other message. The API leaves the conversation read, up to the
+  notice, for the participants and for whoever answered the call from a
+  device (CALL_ACCEPTED or CALL_DECLINED with their own ID): an app that
+  marks a conversation unread on DM_MESSAGE_CREATE leaves it read for them
+  too.
+
+### Tests
+
+- A call notice's `call`, from DM_MESSAGE_CREATE and the history, its
+  `duration`, and none on other messages. `dm_message_create`,
+  `message_response`, `thread_message`, `message_search` and `message_model`
+  gain `call`, and nothing else: they were made again by
+  `tool/fixtures/generate.sh` from api#134's branch, `call-notices`
+  (d12e6b1), and the gateway's (bced2c8). The other fixtures the generator
+  changes belong to other changes, and are left out.
+
 ## 2.2.0 – 2026-11-01
 
 ### Added

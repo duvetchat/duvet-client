@@ -19,5 +19,6 @@
   "flags": 2,
   "components": [],
   "interaction_metadata": null,
-  "ref_mention_author": false
+  "ref_mention_author": false,
+  "call": null
 }

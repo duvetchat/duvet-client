@@ -95,6 +95,11 @@ final class MessageType extends EnumLike<int, MessageType> {
   /// A room's or conversation's notice that its author pinned the message it
   /// references; no content.
   static const pinNotice = MessageType(2);
+
+  /// A conversation's notice that one of its calls ended: its author is the
+  /// caller, it has no content, and [DirectMessage.call] says who was in the
+  /// call and when.
+  static const call = MessageType(3);
   const MessageType(super.value);
 
   static MessageType fromInt(int v) => MessageType(v);
@@ -1296,6 +1301,44 @@ class Conversation {
             .toList();
 }
 
+/// What a call notice ([MessageType.call]) says about its call: who was in
+/// it, and when. The API posts one in the conversation once a call in it
+/// ends. The notice's message ID is made as the call ends, so the notice sits
+/// there in the history: when the API posts it late, its DM_MESSAGE_CREATE
+/// can come after newer messages.
+///
+/// The API leaves the conversation read, up to the notice, for the
+/// [participants] and for whoever answered the call from a device
+/// (CALL_ACCEPTED or CALL_DECLINED with their own ID): only the other
+/// members, who missed the call, find it unread.
+class CallNotice {
+  /// Who was in the call, by user ID: its caller first, whether or not they
+  /// joined its voice, then each member who joined its voice, once. The
+  /// caller alone is a call nobody else got into: nobody answered it, or
+  /// whoever did never joined its voice.
+  final List<String> participants;
+
+  /// When the call started (it began to ring) and when it ended.
+  final DateTime startedAt;
+  final DateTime endedAt;
+
+  const CallNotice({
+    required this.participants,
+    required this.startedAt,
+    required this.endedAt,
+  });
+
+  CallNotice.fromJson(Map<String, dynamic> j)
+      : participants = (j['participants'] as List<dynamic>? ?? [])
+            .map((e) => e as String)
+            .toList(),
+        startedAt = DateTime.parse(j['started_at'] as String),
+        endedAt = DateTime.parse(j['ended_at'] as String);
+
+  /// How long the call lasted, ringing included.
+  Duration get duration => endedAt.difference(startedAt);
+}
+
 class DirectMessage {
   final String id;
   final String? conversationId;
@@ -1319,6 +1362,10 @@ class DirectMessage {
   /// message leave it out.
   final DateTime? pinnedAt;
 
+  /// What a call notice ([MessageType.call]) says about its call; null on
+  /// every other message.
+  final CallNotice? call;
+
   const DirectMessage({
     required this.id,
     this.conversationId,
@@ -1335,6 +1382,7 @@ class DirectMessage {
     this.reactions,
     this.stickerAttachmentId,
     this.pinnedAt,
+    this.call,
   });
 
   DirectMessage.fromJson(Map<String, dynamic> j)
@@ -1363,7 +1411,10 @@ class DirectMessage {
             ?.map((e) => MessageReaction.fromJson(e as Map<String, dynamic>))
             .toList(),
         stickerAttachmentId = j['sticker_attachment_id'] as String?,
-        pinnedAt = _parseDate(j['pinned_at']);
+        pinnedAt = _parseDate(j['pinned_at']),
+        call = j['call'] != null
+            ? CallNotice.fromJson(j['call'] as Map<String, dynamic>)
+            : null;
 }
 
 // ---------------------------------------------------------------------------

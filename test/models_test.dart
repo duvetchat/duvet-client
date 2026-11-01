@@ -206,6 +206,62 @@ void main() {
             json, (m) => DirectMessage.fromJson({...m, 'author_id': 'u1'}));
       }
     });
+
+    test('a call notice\'s call, and none on other messages', () {
+      // DM_MESSAGE_CREATE, and the history: a page, a message alone, a thread.
+      final at = DateTime.utc(2026, 10, 22, 10, 0, 0, 123, 456);
+      for (final name in [
+        'dm_message_create',
+        'message_response',
+        'thread_message'
+      ]) {
+        final json = _load(name, 'full');
+        final call = DirectMessage.fromJson(json).call!;
+        expect(call.participants, (json['call'] as Map)['participants'],
+            reason: name);
+        expect((call.startedAt, call.endedAt), (at, at), reason: name);
+        // The API leaves it out of every other message.
+        final other = DirectMessage.fromJson(
+            {..._load(name, 'nulls'), 'author_id': 'u1'});
+        expect(other.call, isNull, reason: name);
+      }
+    });
+
+    test('a call notice as the API posts it: who was in it, for how long', () {
+      Map<String, dynamic> notice(List<String>? participants) => {
+            // Made as the call ended (UUIDv7), posted just after.
+            'id': '01a1896a-f55e-7c3e-8f1d-2b4c6d8e0a1b',
+            'conversation_id': 'c1',
+            'author_id': 'u1',
+            'content': null,
+            'type': 3,
+            'created_at': '2026-10-29T20:47:30.702Z',
+            'updated_at': '2026-10-29T20:47:30.702Z',
+            'attachments': [],
+            'reactions': [],
+            'sticker_attachment_id': null,
+            'embeds': null,
+            'call': {
+              'participants': participants,
+              'started_at': '2026-10-29T20:45:00.123456Z',
+              'ended_at': '2026-10-29T20:47:30.654321Z',
+            },
+          };
+      final talked = DirectMessage.fromJson(notice(['u1', 'u2']));
+      expect((talked.type, talked.authorId, talked.content),
+          (MessageType.call, 'u1', null));
+      final call = talked.call!;
+      // Its caller first, then whoever joined its voice.
+      expect(call.participants, ['u1', 'u2']);
+      expect(call.startedAt, DateTime.utc(2026, 10, 29, 20, 45, 0, 123, 456));
+      expect(call.endedAt, DateTime.utc(2026, 10, 29, 20, 47, 30, 654, 321));
+      expect(call.duration,
+          const Duration(minutes: 2, seconds: 30, microseconds: 530865));
+      // Its caller alone: nobody else got into the call.
+      expect(DirectMessage.fromJson(notice(['u1'])).call!.participants, ['u1']);
+      // The API always sends the caller, but its type allows null.
+      expect(DirectMessage.fromJson(notice(null)).call!.participants, isEmpty);
+    });
   });
 
   group('spaces', () {
@@ -553,6 +609,13 @@ void main() {
               _load('dm_message_pin_update_event', 'nulls'))
           as DMMessagePinUpdatedEvent;
       expect(unpinned.data.pinnedAt, isNull);
+    });
+
+    test('DM_MESSAGE_CREATE: a call notice, with its call', () {
+      final json = {..._load('dm_message_create', 'full'), 'type': 3};
+      final e = dispatch('DM_MESSAGE_CREATE', json) as DMMessageCreatedEvent;
+      expect(e.data.type, MessageType.call);
+      expect(e.data.call!.participants, (json['call'] as Map)['participants']);
     });
 
     test('RECORDING and DM_RECORDING: who records where, not typing', () {
