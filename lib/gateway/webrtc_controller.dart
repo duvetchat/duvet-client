@@ -1,6 +1,5 @@
-// this codebase (this file) is the only one that's not largely made by me
-// all copyright goes to the duvet authors (MARCROCK22 and n128)
-// I am a mere contributor who cloned the TS codebase
+// this codebase (this file) is the only one that is borrowed
+// all copyright goes to the duvet authors (Yuzudev, MARCROCK22 and n128)
 
 import 'dart:async';
 
