@@ -19,6 +19,19 @@
   - `InteractionMetadata.name` is what ran: the command's name, then the
     group's and the subcommand's, apart by spaces (`permissions user get`).
 
+### Changed
+
+- **Activity images are small data URIs** (duvetchat/gateway#134): the
+  gateway keeps an activity's `large_image` and `small_image`
+  (`ActivityAssets.largeImage` and `smallImage`) only when each is a data URI
+  of 8 KiB at most, of an SVG or of a PNG, JPEG, GIF or WebP image of 512 px
+  a side at most, and leaves out any other, a URL above all, whose host would
+  learn the IP of whoever views the activity. The activity stays, with its
+  texts. Draw these images as images, and never put an SVG's markup into a
+  page: an SVG drawn as an image loads nothing from the network.
+  `ActivityAssets`' doc says so, and nothing else changes; a gateway before
+  that change can still send a URL.
+
 ### Tests
 
 - A group of subcommands, as the API gives it, and a command with one in the
