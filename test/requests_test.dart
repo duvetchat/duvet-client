@@ -960,6 +960,13 @@ void main() {
       });
     });
 
+    test('a group without its subcommand fails its assert (debug builds)', () {
+      expect(
+          () => CommandUse(
+              id: 'cmd1', name: 'permissions', subcommandGroup: 'user'),
+          throwsA(isA<AssertionError>()));
+    });
+
     test('a use answers the modal the bot opened', () async {
       final modal = {
         'custom_id': 'feedback',

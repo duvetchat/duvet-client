@@ -14,7 +14,8 @@
     `CommandUse(subcommand:)` names it, `subcommandGroup:` its group when it's
     in one, and `options` are the subcommand's. The use sends the subcommand
     under its group, with its options under it. A use without them sends what
-    it sent before.
+    it sent before. A group without its subcommand fails an assert, in debug
+    builds only: in a release build the API refuses the use with a 400.
   - `InteractionMetadata.name` is what ran: the command's name, then the
     group's and the subcommand's, apart by spaces (`permissions user get`).
 

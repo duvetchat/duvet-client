@@ -836,7 +836,11 @@ class CommandUse {
   final String id;
   final String name;
 
-  /// The group of the [subcommand] used, when it's in one.
+  /// The group of the [subcommand] used, when it's in one. A group goes with
+  /// its subcommand: the constructor's assert refuses one without it, but
+  /// asserts run in debug builds only. In a release build such a use is sent,
+  /// and the API refuses it with a 400 that says so
+  /// (`group "user" runs one of its subcommands: name it`).
   final String? subcommandGroup;
 
   /// The subcommand used, for a command with subcommands.
