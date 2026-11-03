@@ -1,0 +1,35 @@
+{
+  "type": 2,
+  "name": "s-user",
+  "description": "s-user",
+  "options": [
+    {
+      "type": 1,
+      "name": "s-get",
+      "description": "s-get",
+      "options": [
+        {
+          "type": 3,
+          "name": "s-string",
+          "description": "s-string",
+          "required": true,
+          "choices": [
+            {
+              "name": "s-string",
+              "value": {
+                "k": "v"
+              }
+            }
+          ],
+          "min_value": 1.5,
+          "max_value": 1.5,
+          "min_length": 2,
+          "max_length": 2,
+          "room_types": [
+            2
+          ]
+        }
+      ]
+    }
+  ]
+}

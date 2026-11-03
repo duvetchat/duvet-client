@@ -591,6 +591,16 @@ class WebhookCreateResponse {
 
 /// The option types of an application's command.
 abstract final class CommandOptionType {
+  /// Something the command does, with options of its own
+  /// ([CommandOption.options]). A command's options are all subcommands and
+  /// groups of them, or none of them, and a command with subcommands is used
+  /// through one of them ([CommandUse.subcommand]).
+  static const subcommand = 1;
+
+  /// Subcommands that go together ([CommandOption.options]), one level deep:
+  /// a group holds only subcommands.
+  static const subcommandGroup = 2;
+
   static const string = 3;
   static const integer = 4;
   static const boolean = 5;
@@ -614,7 +624,8 @@ class CommandChoice {
         value = j['value'] as Object;
 }
 
-/// What a command takes; the required ones come first.
+/// What a command takes: an option that takes a value (the required ones
+/// come first), or a subcommand or a group of them.
 class CommandOption {
   /// A [CommandOptionType].
   final int type;
@@ -624,6 +635,10 @@ class CommandOption {
 
   /// The only values it takes, for string, integer and number options.
   final List<CommandChoice>? choices;
+
+  /// A subcommand's options, or a group's subcommands. Null for an option
+  /// that takes a value, and for a subcommand without options.
+  final List<CommandOption>? options;
   final num? minValue;
   final num? maxValue;
   final int? minLength;
@@ -636,6 +651,7 @@ class CommandOption {
     required this.description,
     this.required = false,
     this.choices,
+    this.options,
     this.minValue,
     this.maxValue,
     this.minLength,
@@ -650,6 +666,9 @@ class CommandOption {
         required = j['required'] as bool? ?? false,
         choices = (j['choices'] as List<dynamic>?)
             ?.map((e) => CommandChoice.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        options = (j['options'] as List<dynamic>?)
+            ?.map((e) => CommandOption.fromJson(e as Map<String, dynamic>))
             .toList(),
         minValue = j['min_value'] as num?,
         maxValue = j['max_value'] as num?,
@@ -810,19 +829,55 @@ class UsedOption {
 }
 
 /// What a person sends about the command they used: the command, as the
-/// space's list has it, and its options.
+/// space's list has it, and its options. A command with subcommands is used
+/// through one of them: [subcommand] names it, [subcommandGroup] its group
+/// when it's in one, and [options] are the subcommand's.
 class CommandUse {
   final String id;
   final String name;
+
+  /// The group of the [subcommand] used, when it's in one. A group goes with
+  /// its subcommand: the constructor's assert refuses one without it, but
+  /// asserts run in debug builds only. In a release build such a use is sent,
+  /// and the API refuses it with a 400 that says so
+  /// (`group "user" runs one of its subcommands: name it`).
+  final String? subcommandGroup;
+
+  /// The subcommand used, for a command with subcommands.
+  final String? subcommand;
   final List<UsedOption> options;
 
   const CommandUse(
-      {required this.id, required this.name, this.options = const []});
+      {required this.id,
+      required this.name,
+      this.subcommandGroup,
+      this.subcommand,
+      this.options = const []})
+      : assert(subcommandGroup == null || subcommand != null,
+            'a group is used through one of its subcommands');
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'type': 1,
-        'options': options.map((o) => o.toJson()).toList(),
-      };
+  /// The use as the API takes it: the subcommand's options under it, and the
+  /// subcommand under its group.
+  Map<String, dynamic> toJson() {
+    var used = [for (final o in options) o.toJson()];
+    if (subcommand != null) {
+      used = [
+        {
+          'name': subcommand,
+          'type': CommandOptionType.subcommand,
+          'options': used,
+        }
+      ];
+    }
+    if (subcommandGroup != null) {
+      used = [
+        {
+          'name': subcommandGroup,
+          'type': CommandOptionType.subcommandGroup,
+          'options': used,
+        }
+      ];
+    }
+    return {'id': id, 'name': name, 'type': 1, 'options': used};
+  }
 }

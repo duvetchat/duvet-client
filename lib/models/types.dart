@@ -493,7 +493,9 @@ class InteractionMetadata {
   /// The interaction's first response, on its follow-ups.
   final String? originalResponseMessageId;
 
-  /// The command's name, for a command's interaction.
+  /// What a command's interaction ran: the command's name, then the group's
+  /// and the subcommand's when it has them, apart by spaces
+  /// (`permissions user get`).
   final String? name;
 
   const InteractionMetadata({

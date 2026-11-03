@@ -277,7 +277,49 @@ void main() {
     _parses('webhook', Webhook.fromJson);
     _parses('webhook_create', WebhookCreateResponse.fromJson);
     _parses('space_member', SpaceMemberWithUser.fromJson);
-    _parses('space_commands', SpaceCommands.fromJson);
+    _parses('space_commands', SpaceCommands.fromJson, check: (s, variant) {
+      if (variant == 'full') {
+        // An option that takes a value has no options of its own.
+        expect(s.commands.single.options.single.options, isNull);
+      }
+    });
+    // A group of subcommands (duvetchat/api#163): its subcommand, and that
+    // subcommand's options.
+    _parses('command_option_group', CommandOption.fromJson,
+        check: (g, variant) {
+      expect((g.type, g.name), (CommandOptionType.subcommandGroup, 's-user'));
+      final subcommand = g.options!.single;
+      expect((subcommand.type, subcommand.name, subcommand.required),
+          (CommandOptionType.subcommand, 's-get', false));
+      final option = subcommand.options!.single;
+      expect(
+          (option.type, option.name), (CommandOptionType.string, 's-string'));
+      expect(option.options, isNull);
+      expect(option.required, variant == 'full');
+      expect(option.minLength, variant == 'full' ? 2 : isNull);
+    });
+    test('a command with subcommands, as the members\' list has it', () {
+      final json = _load('space_commands', 'full');
+      final command = (json['commands'] as List).single as Map<String, dynamic>;
+      final group = _load('command_option_group', 'full');
+      final list = SpaceCommands.fromJson({
+        ...json,
+        'commands': [
+          {
+            ...command,
+            'options': [
+              group,
+              {'type': 1, 'name': 'reset', 'description': 'Resets'},
+            ],
+          }
+        ],
+      });
+      final [user, reset] = list.commands.single.options;
+      expect(user.type, CommandOptionType.subcommandGroup);
+      expect(user.options!.single.options!.single.name, 's-string');
+      // A subcommand without options: the API leaves them out.
+      expect((reset.type, reset.options), (CommandOptionType.subcommand, null));
+    });
     _parses('create_space_result', CreatedSpace.fromJson, check: (s, _) {
       expect(s.id, s.space.id);
       expect(s.rooms, hasLength(2));

@@ -1,3 +1,34 @@
+## Unreleased
+
+### Added
+
+- **Subcommands and groups of them** (duvetchat/api#163): a command's options
+  are all subcommands and groups, or none of them, and a group holds only
+  subcommands, one level deep.
+  - `CommandOptionType.subcommand` (1) and `CommandOptionType.subcommandGroup`
+    (2).
+  - `CommandOption.options`: a subcommand's options, or a group's
+    subcommands. Null for an option that takes a value, and for a subcommand
+    without options, which the API leaves out.
+  - A command with subcommands is used through one of them:
+    `CommandUse(subcommand:)` names it, `subcommandGroup:` its group when it's
+    in one, and `options` are the subcommand's. The use sends the subcommand
+    under its group, with its options under it. A use without them sends what
+    it sent before. A group without its subcommand fails an assert, in debug
+    builds only: in a release build the API refuses the use with a 400.
+  - `InteractionMetadata.name` is what ran: the command's name, then the
+    group's and the subcommand's, apart by spaces (`permissions user get`).
+
+### Tests
+
+- A group of subcommands, as the API gives it, and a command with one in the
+  members' list; an option that takes a value has no `options`; what a
+  subcommand's use sends, in its group or not. `command_option_group` is new,
+  made by `tool/fixtures/generate.sh` from api#163's branch (`subcommands`):
+  the generator leaves an option's own options empty, as it does every struct
+  type inside itself, so it builds the group from the API's types. The other
+  fixtures it changes belong to other changes, and are left out.
+
 ## 2.3.0 – 2026-11-01
 
 ### Added
