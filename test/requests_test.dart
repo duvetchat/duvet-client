@@ -910,6 +910,56 @@ void main() {
       });
     });
 
+    test('a subcommand\'s use, in its group or not (duvetchat/api#163)',
+        () async {
+      final c = _client((_) => {'type': 4});
+      await c.api.useCommand(
+          'r1',
+          'app1',
+          const CommandUse(
+              id: 'cmd1',
+              name: 'permissions',
+              subcommandGroup: 'user',
+              subcommand: 'get',
+              options: [
+                UsedOption(
+                    name: 'user', type: CommandOptionType.user, value: 'u1')
+              ]));
+      await c.api.useCommand(
+          'r1',
+          'app1',
+          const CommandUse(
+              id: 'cmd1', name: 'permissions', subcommand: 'reset'));
+      expect(c.sent[0].json['data'], {
+        'id': 'cmd1',
+        'name': 'permissions',
+        'type': 1,
+        'options': [
+          {
+            'name': 'user',
+            'type': 2,
+            'options': [
+              {
+                'name': 'get',
+                'type': 1,
+                'options': [
+                  {'name': 'user', 'type': 6, 'value': 'u1'}
+                ],
+              }
+            ],
+          }
+        ],
+      });
+      expect(c.sent[1].json['data'], {
+        'id': 'cmd1',
+        'name': 'permissions',
+        'type': 1,
+        'options': [
+          {'name': 'reset', 'type': 1, 'options': []}
+        ],
+      });
+    });
+
     test('a use answers the modal the bot opened', () async {
       final modal = {
         'custom_id': 'feedback',
