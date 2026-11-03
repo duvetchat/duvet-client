@@ -1836,7 +1836,8 @@ class ActivityTimestamps {
         end = j['end'] as int?;
 }
 
-/// An activity's images (a URL, or a small data URI) and their texts.
+/// An activity's images (each a small data URI: a PNG, JPEG, GIF, WebP or
+/// SVG image, 8 KiB at most) and their texts.
 class ActivityAssets {
   final String? largeImage;
   final String? largeText;
