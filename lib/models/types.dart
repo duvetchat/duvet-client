@@ -1840,7 +1840,7 @@ class ActivityTimestamps {
 /// JPEG, GIF or WebP image of 512 px a side at most) and their texts.
 ///
 /// Draw them as images, and never put an SVG's markup into a page: an SVG
-/// drawn as an image loads nothing it refers to, while in a page it could
+/// drawn as an image loads nothing from the network, while in a page it could
 /// load a file from a host its sender picked, which would learn who views it.
 class ActivityAssets {
   final String? largeImage;

@@ -28,7 +28,7 @@
   a side at most, and leaves out any other, a URL above all, whose host would
   learn the IP of whoever views the activity. The activity stays, with its
   texts. Draw these images as images, and never put an SVG's markup into a
-  page: an SVG drawn as an image loads nothing it refers to.
+  page: an SVG drawn as an image loads nothing from the network.
   `ActivityAssets`' doc says so, and nothing else changes; a gateway before
   that change can still send a URL.
 
