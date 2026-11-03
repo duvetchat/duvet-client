@@ -24,11 +24,13 @@
 - **Activity images are small data URIs** (duvetchat/gateway#134): the
   gateway keeps an activity's `large_image` and `small_image`
   (`ActivityAssets.largeImage` and `smallImage`) only when each is a data URI
-  of a PNG, JPEG, GIF, WebP or SVG image, 8 KiB at most, and leaves out any
-  other, a URL above all, whose host would learn the IP of whoever views the
-  activity. The activity stays, with its texts. `ActivityAssets`' doc says
-  so, and nothing else changes; a gateway before that change can still send a
-  URL.
+  of 8 KiB at most, of an SVG or of a PNG, JPEG, GIF or WebP image of 512 px
+  a side at most, and leaves out any other, a URL above all, whose host would
+  learn the IP of whoever views the activity. The activity stays, with its
+  texts. Draw these images as images, and never put an SVG's markup into a
+  page: an SVG drawn as an image loads nothing it refers to.
+  `ActivityAssets`' doc says so, and nothing else changes; a gateway before
+  that change can still send a URL.
 
 ### Tests
 

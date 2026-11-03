@@ -1836,8 +1836,12 @@ class ActivityTimestamps {
         end = j['end'] as int?;
 }
 
-/// An activity's images (each a small data URI: a PNG, JPEG, GIF, WebP or
-/// SVG image, 8 KiB at most) and their texts.
+/// An activity's images (each a data URI of 8 KiB at most: an SVG, or a PNG,
+/// JPEG, GIF or WebP image of 512 px a side at most) and their texts.
+///
+/// Draw them as images, and never put an SVG's markup into a page: an SVG
+/// drawn as an image loads nothing it refers to, while in a page it could
+/// load a file from a host its sender picked, which would learn who views it.
 class ActivityAssets {
   final String? largeImage;
   final String? largeText;
