@@ -497,6 +497,20 @@ mixin RestMethods {
         .then((_) {}, onError: (_) {});
   }
 
+  /// A new link to the attachment [attachmentId], signed for another 24 hours,
+  /// as the API gives it: a path on its host, as a message's attachments have
+  /// it (`/attachments/<id>?sig=…&exp=…`, `exp` in Unix seconds). Whoever can
+  /// see the attachment's message gets one; anyone else gets a 404, as for an
+  /// attachment that isn't there.
+  Future<String> resignAttachment(String attachmentId) async {
+    final response = await request(
+        'POST',
+        '/attachments/${Uri.encodeComponent(attachmentId)}/resign',
+        'resign attachment',
+        root: true);
+    return _decodeMap(response)['url'] as String;
+  }
+
   Future<void> deleteMessage(String messageId, String roomId) async {
     await request(
         'DELETE', '/api/rooms/$roomId/messages/$messageId', 'delete message');
@@ -1556,12 +1570,14 @@ mixin RestMethods {
   /// It fails with a [TimeoutException] when [timeout] ([requestTimeout]
   /// unless given) passes without progress. [onProgress] gets the bytes of the
   /// body sent so far, and their total; completing [abortTrigger] cancels the
-  /// request, which then fails with an [http.RequestAbortedException].
+  /// request, which then fails with an [http.RequestAbortedException]. A
+  /// [root] path is outside `/api` (see [ApiRouter.urlFromPath]).
   Future<http.Response> request(
     String method,
     String path,
     String action, {
     Map<String, dynamic>? query,
+    bool root = false,
     Object? json,
     Map<String, String>? fields,
     List<FilePart>? files,
@@ -1570,7 +1586,7 @@ mixin RestMethods {
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
   }) async {
-    final url = router.urlFromPath(path, query: query);
+    final url = router.urlFromPath(path, query: query, root: root);
 
     http.BaseRequest build() {
       if (fields != null || files != null) {

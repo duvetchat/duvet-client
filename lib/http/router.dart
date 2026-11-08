@@ -30,10 +30,13 @@ base class ApiRouter {
 
   /// The API's URL for [path], whose segments must already be encoded (see
   /// [Uri.encodeComponent]), with [query]'s non-null values; a list value
-  /// repeats its key.
-  Uri urlFromPath(String path, {Map<String, dynamic>? query}) {
+  /// repeats its key. A [root] path is taken as it is, outside [apiBasePath],
+  /// as the API serves its attachments.
+  Uri urlFromPath(String path,
+      {Map<String, dynamic>? query, bool root = false}) {
     // more aesthetic, less scalable, keep it
-    final full = path.startsWith(apiBasePath) ? path : apiBasePath + path;
+    final full =
+        root || path.startsWith(apiBasePath) ? path : apiBasePath + path;
     final url = Uri.parse('${secure ? 'https' : 'http'}://$api$full');
     final params = <String, dynamic>{
       for (final MapEntry(:key, :value) in (query ?? {}).entries)

@@ -508,6 +508,40 @@ void main() {
       final failing = _client((_) => http.Response('', 500));
       expect(await failing.api.getMentionCounts(), isEmpty);
     });
+
+    // The API's answer, as its fixture has it.
+    for (final variant in ['full', 'nulls', 'partial']) {
+      test(
+          'resignAttachment posts outside /api and answers the new link '
+          '($variant)', () async {
+        final answer = jsonDecode(
+            File('test/fixtures/attachment_resign.$variant.json')
+                .readAsStringSync());
+        final c = _client((_) => answer);
+        expect(await c.api.resignAttachment('a1'), 's-string');
+        expect((c.sent.single.method, c.sent.single.path),
+            ('POST', '/attachments/a1/resign'));
+        expect(c.sent.single.request.url.host, 'api.duvet.chat');
+      });
+    }
+
+    test('resignAttachment keeps the ID to its path segment', () async {
+      final c = _client((_) => {'url': '/attachments/x'});
+      await c.api.resignAttachment('../users/@me');
+      expect(c.sent.single.request.url.path,
+          '/attachments/..%2Fusers%2F%40me/resign');
+    });
+
+    test('resignAttachment: an attachment the user can\'t see is a 404',
+        () async {
+      const body = '{"error":"attachment not found"}';
+      final c = _client((_) => http.Response(body, 404));
+      await expectLater(
+          c.api.resignAttachment('a1'),
+          throwsA(isA<DuvetApiException>()
+              .having((e) => e.statusCode, 'statusCode', 404)
+              .having((e) => e.body, 'body', body)));
+    });
   });
 
   group('reactions', () {

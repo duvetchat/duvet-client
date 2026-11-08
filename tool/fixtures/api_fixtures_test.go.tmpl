@@ -23,6 +23,10 @@ func TestWriteFixtures(t *testing.T) {
 	w("user", of[q.User])
 	w("storage_status", of[q.GetUserStorageStatusRow])
 	w("attachment", of[st.AttachmentWithURL])
+	// ResignAttachment answers the attachment's signed URL alone.
+	w("attachment_resign", func(mode variant) any {
+		return map[string]any{"url": of[st.AttachmentWithURL](mode).(st.AttachmentWithURL).URL}
+	})
 	w("bucket_list_row", of[q.GetStorageBucketsByOwnerIDRow])
 	w("bucket_create_row", of[q.CreateStorageBucketRow])
 	w("team", of[q.Team])
