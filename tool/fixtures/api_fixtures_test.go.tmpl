@@ -10,6 +10,7 @@ import (
 	st "github.com/duvetchat/api/internal/adapters/storage"
 	cmds "github.com/duvetchat/api/internal/domain/commands"
 	ev "github.com/duvetchat/api/internal/domain/events"
+	model "github.com/duvetchat/api/internal/domain/model"
 	ser "github.com/duvetchat/api/internal/http/serializers"
 	svc "github.com/duvetchat/api/internal/services"
 )
@@ -51,6 +52,7 @@ func TestWriteFixtures(t *testing.T) {
 	w("friend_request_row", of[ser.FriendRequest])
 	w("friend_request", of[q.FriendRequest])
 	w("space_commands", of[ser.SpaceCommandsResponse])
+	w("application_command", of[model.ApplicationCommand])
 	// fill leaves an option's options empty (a struct type inside itself), so
 	// a group is made here: its subcommand, and that subcommand's option as
 	// fill makes it.

@@ -1,7 +1,16 @@
-## Unreleased
+## 2.4.0 – 2026-11-08
 
 ### Added
 
+- **An application's commands** (duvetchat/mobile#184), under
+  `/api/users/@me/teams/:teamId/applications/:appId/commands`:
+  `listCommands`, `getCommand`, `createCommand`, `overwriteCommands` (PUT:
+  the whole list, all or none saved, an empty one deletes them all),
+  `updateCommand` (what's given; `options` replaces the list) and
+  `deleteCommand`. Team members list them; team admins and the application's
+  bot change them.
+  - `NewCommand`: a command to register, with its `options`.
+  - `CommandOption.toJson` and `CommandChoice.toJson`, as the API takes them.
 - **Subcommands and groups of them** (duvetchat/api#163): a command's options
   are all subcommands and groups, or none of them, and a group holds only
   subcommands, one level deep.

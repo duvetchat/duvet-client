@@ -622,6 +622,8 @@ class CommandChoice {
   CommandChoice.fromJson(Map<String, dynamic> j)
       : name = j['name'] as String,
         value = j['value'] as Object;
+
+  Map<String, dynamic> toJson() => {'name': name, 'value': value};
 }
 
 /// What a command takes: an option that takes a value (the required ones
@@ -677,6 +679,41 @@ class CommandOption {
         roomTypes = (j['room_types'] as List<dynamic>?)
             ?.map((e) => RoomType.fromInt(e as int))
             .toList();
+
+  /// As the API takes it in a command to register: what's null or false is
+  /// left out.
+  Map<String, dynamic> toJson() => {
+        'type': type,
+        'name': name,
+        'description': description,
+        if (required) 'required': true,
+        if (choices != null) 'choices': [for (final c in choices!) c.toJson()],
+        if (options != null) 'options': [for (final o in options!) o.toJson()],
+        if (minValue != null) 'min_value': minValue,
+        if (maxValue != null) 'max_value': maxValue,
+        if (minLength != null) 'min_length': minLength,
+        if (maxLength != null) 'max_length': maxLength,
+        if (roomTypes != null)
+          'room_types': [for (final t in roomTypes!) t.value],
+      };
+}
+
+/// A chat command to register ([RestMethods.createCommand],
+/// [RestMethods.overwriteCommands]).
+class NewCommand {
+  final String name;
+  final String description;
+  final List<CommandOption> options;
+
+  const NewCommand(
+      {required this.name, required this.description, this.options = const []});
+
+  Map<String, dynamic> toJson() => {
+        'type': 1,
+        'name': name,
+        'description': description,
+        'options': [for (final o in options) o.toJson()],
+      };
 }
 
 /// A chat command an application registers.

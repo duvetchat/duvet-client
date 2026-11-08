@@ -283,6 +283,11 @@ void main() {
         expect(s.commands.single.options.single.options, isNull);
       }
     });
+    _parses('application_command', ApplicationCommand.fromJson,
+        check: (c, variant) {
+      expect(c.name, 's-string');
+      expect(c.options, variant == 'full' ? hasLength(1) : isEmpty);
+    });
     // A group of subcommands (duvetchat/api#163): its subcommand, and that
     // subcommand's options.
     _parses('command_option_group', CommandOption.fromJson,
