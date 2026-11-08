@@ -1411,6 +1411,67 @@ mixin RestMethods {
         'delete application');
   }
 
+  // Commands, which team members list and team admins (or the application's
+  // bot) change. The API checks each one (a name of 1 to 32 lowercase
+  // letters of any script, digits, - and _; its options' rules) and answers a
+  // 400 with the reason.
+
+  Future<List<ApplicationCommand>> listCommands(
+      String teamId, String appId) async {
+    final response = await request(
+        'GET', _commands(teamId, appId), 'list application commands');
+    return _decodeList(response, ApplicationCommand.fromJson);
+  }
+
+  Future<ApplicationCommand> getCommand(
+      String teamId, String appId, String commandId) async {
+    final response = await request('GET',
+        '${_commands(teamId, appId)}/$commandId', 'get application command');
+    return ApplicationCommand.fromJson(_decodeMap(response));
+  }
+
+  Future<ApplicationCommand> createCommand(
+      String teamId, String appId, NewCommand command) async {
+    final response = await request(
+        'POST', _commands(teamId, appId), 'create application command',
+        json: command.toJson());
+    return ApplicationCommand.fromJson(_decodeMap(response));
+  }
+
+  /// Makes [commands] the application's commands, all of them: those left
+  /// out are deleted, and an empty list deletes every one. All or none are
+  /// saved.
+  Future<List<ApplicationCommand>> overwriteCommands(
+      String teamId, String appId, List<NewCommand> commands) async {
+    final response = await request(
+        'PUT', _commands(teamId, appId), 'overwrite application commands',
+        json: [for (final c in commands) c.toJson()]);
+    return _decodeList(response, ApplicationCommand.fromJson);
+  }
+
+  /// Changes what's given; [options] replaces the whole list.
+  Future<ApplicationCommand> updateCommand(
+      String teamId, String appId, String commandId,
+      {String? name, String? description, List<CommandOption>? options}) async {
+    final response = await request('PATCH',
+        '${_commands(teamId, appId)}/$commandId', 'update application command',
+        json: {
+          if (name != null) 'name': name,
+          if (description != null) 'description': description,
+          if (options != null) 'options': [for (final o in options) o.toJson()],
+        });
+    return ApplicationCommand.fromJson(_decodeMap(response));
+  }
+
+  Future<void> deleteCommand(
+      String teamId, String appId, String commandId) async {
+    await request('DELETE', '${_commands(teamId, appId)}/$commandId',
+        'delete application command');
+  }
+
+  static String _commands(String teamId, String appId) =>
+      '/api/users/@me/teams/$teamId/applications/$appId/commands';
+
   // Bot
 
   /// Makes the application's bot; answers its token.

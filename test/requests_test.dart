@@ -1168,4 +1168,115 @@ void main() {
       expect(c.sent, hasLength(1));
     });
   });
+
+  group('application commands', () {
+    const base = '/api/users/@me/teams/t1/applications/a1/commands';
+    final command = jsonDecode(
+        File('test/fixtures/application_command.full.json')
+            .readAsStringSync()) as Map<String, dynamic>;
+    const poll = NewCommand(
+      name: 'poll',
+      description: 'Start a vote',
+      options: [
+        CommandOption(
+          type: CommandOptionType.string,
+          name: 'question',
+          description: 'What to ask',
+          required: true,
+          maxLength: 100,
+        ),
+        CommandOption(
+          type: CommandOptionType.integer,
+          name: 'hours',
+          description: 'How long',
+          choices: [CommandChoice(name: 'One day', value: 24)],
+        ),
+        CommandOption(
+          type: CommandOptionType.room,
+          name: 'where',
+          description: 'Which room',
+          roomTypes: [RoomType.text],
+        ),
+      ],
+    );
+    final pollJson = {
+      'type': 1,
+      'name': 'poll',
+      'description': 'Start a vote',
+      'options': [
+        {
+          'type': 3,
+          'name': 'question',
+          'description': 'What to ask',
+          'required': true,
+          'max_length': 100,
+        },
+        {
+          'type': 4,
+          'name': 'hours',
+          'description': 'How long',
+          'choices': [
+            {'name': 'One day', 'value': 24}
+          ],
+        },
+        {
+          'type': 7,
+          'name': 'where',
+          'description': 'Which room',
+          'room_types': [1],
+        },
+      ],
+    };
+
+    test('list, get and delete', () async {
+      final c = _client((s) => switch (s.method) {
+            'GET' when s.path == base => [command],
+            'GET' => command,
+            _ => null,
+          });
+      final list = await c.api.listCommands('t1', 'a1');
+      final one = await c.api.getCommand('t1', 'a1', 'c1');
+      await c.api.deleteCommand('t1', 'a1', 'c1');
+      expect(list.single.name, 's-string');
+      expect(one.id, command['id']);
+      expect([
+        for (final s in c.sent) (s.method, s.path)
+      ], [
+        ('GET', base),
+        ('GET', '$base/c1'),
+        ('DELETE', '$base/c1'),
+      ]);
+    });
+
+    test('create sends the command with its options', () async {
+      final c = _client((_) => command);
+      await c.api.createCommand('t1', 'a1', poll);
+      expect((c.sent.single.method, c.sent.single.path), ('POST', base));
+      expect(c.sent.single.json, pollJson);
+    });
+
+    test('overwrite sends the whole list, an empty one too', () async {
+      final c = _client((_) => [command]);
+      final saved = await c.api.overwriteCommands('t1', 'a1', [poll]);
+      await c.api.overwriteCommands('t1', 'a1', const []);
+      expect(saved, hasLength(1));
+      expect((c.sent[0].method, c.sent[0].path), ('PUT', base));
+      expect(jsonDecode(c.sent[0].request.body), [pollJson]);
+      expect(jsonDecode(c.sent[1].request.body), isEmpty);
+    });
+
+    test('update sends only what changes; options replace the list', () async {
+      final c = _client((_) => command);
+      await c.api.updateCommand('t1', 'a1', 'c1', description: 'Vote');
+      await c.api.updateCommand('t1', 'a1', 'c1', options: const []);
+      expect((c.sent[0].method, c.sent[0].path), ('PATCH', '$base/c1'));
+      expect(c.sent[0].json, {'description': 'Vote'});
+      expect(c.sent[1].json, {'options': <Object>[]});
+    });
+
+    test('a fixture\'s options go back as they came', () {
+      final parsed = ApplicationCommand.fromJson(command);
+      expect([for (final o in parsed.options) o.toJson()], command['options']);
+    });
+  });
 }
