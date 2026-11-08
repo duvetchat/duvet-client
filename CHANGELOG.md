@@ -1,3 +1,18 @@
+## 2.5.0 – 2026-11-08
+
+### Added
+
+- **A new link to an attachment** (duvetchat/mobile#182): the links of a
+  message's attachments are signed for 24 hours, and
+  `resignAttachment(attachmentId)` asks the API for one signed for another 24
+  (`POST /attachments/:attachmentId/resign`). It answers the link as a
+  message's attachment has it, a path on the API's host
+  (`/attachments/<id>?sig=…&exp=…`, `exp` in Unix seconds). Whoever can see the
+  attachment's message gets one; anyone else gets a 404, as for an attachment
+  that isn't there.
+- `ApiRouter.urlFromPath(root: true)` and `request(root: true)` take a path as
+  it is, outside `/api`, as the API serves its attachments.
+
 ## 2.4.0 – 2026-11-08
 
 ### Added
