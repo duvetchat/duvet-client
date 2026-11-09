@@ -7,10 +7,12 @@
 //
 // To make them again from the api and gateway checkouts:
 // tool/fixtures/generate.sh.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:duvet_client/duvet.dart';
+import 'package:duvet_client/gateway/events.dart';
 import 'package:test/test.dart';
 
 Map<String, dynamic> _load(String name, String variant) =>
@@ -55,6 +57,18 @@ Map<String, dynamic> _withNull(Map<String, dynamic> json, String key) =>
 /// [json] without [key], as an omitempty field leaves it.
 Map<String, dynamic> _without(Map<String, dynamic> json, String key) =>
     {...json}..remove(key);
+
+/// The streams of [GatewayEvents] over the events [add] gives them.
+class _Events with GatewayEvents {
+  final _events = StreamController<GatewayEventPayload>.broadcast();
+
+  @override
+  Stream<GatewayEventPayload> get onEvent => _events.stream;
+
+  void add(GatewayEventPayload event) => _events.add(event);
+
+  Future<void> close() => _events.close();
+}
 
 void main() {
   group('users', () {
@@ -277,6 +291,28 @@ void main() {
     _parses('webhook', Webhook.fromJson);
     _parses('webhook_create', WebhookCreateResponse.fromJson);
     _parses('space_member', SpaceMemberWithUser.fromJson);
+    _parses('space_ban', SpaceBan.fromJson, check: (b, variant) {
+      expect(b.createdAt, DateTime.utc(2026, 10, 22, 10, 0, 0, 123, 456));
+      // Null without a reason.
+      expect(b.reason, variant == 'full' ? 's-string' : isNull);
+      // The public user, which carries no status.
+      expect((b.user.username, b.user.custom, b.user.statusId),
+          ('s-string', 's-string', UserStatus.offline));
+      expect(b.user.alias, variant == 'full' ? 's-string' : isNull);
+    });
+    test('a ban: whose, where, who banned them, and why', () {
+      final json = _load('space_ban', 'full');
+      final b = SpaceBan.fromJson({
+        ...json,
+        'space_id': 's1',
+        'user_id': 'u2',
+        'user': {...json['user'] as Map<String, dynamic>, 'id': 'u2'},
+        'reason': 'spam',
+        'banned_by': 'u1',
+      });
+      expect((b.spaceId, b.userId, b.user.id, b.bannedBy, b.reason),
+          ('s1', 'u2', 'u2', 'u1', 'spam'));
+    });
     _parses('space_commands', SpaceCommands.fromJson, check: (s, variant) {
       if (variant == 'full') {
         // An option that takes a value has no options of its own.
@@ -519,6 +555,8 @@ void main() {
       'MEMBER_ROLE_REMOVE': ('member_role_remove_event', []),
       'SPACE_MEMBER_ADD': ('space_member_add_event', []),
       'SPACE_MEMBER_REMOVE': ('space_member_remove_event', []),
+      'SPACE_BAN_ADD': ('space_ban', []),
+      'SPACE_BAN_REMOVE': ('space_ban_remove_event', []),
       'SPACE_EMOJI_CREATE': ('space_emoji', []),
       'SPACE_EMOJI_UPDATE': ('space_emoji', []),
       'SPACE_EMOJI_DELETE': ('space_emoji', []),
@@ -623,6 +661,8 @@ void main() {
         ),
         'CALL_OUTGOING': ('call_outgoing_event', CallOutgoingPayloadEvent),
         'CALL_ONGOING': ('call_ongoing_event', CallOngoingPayloadEvent),
+        'SPACE_BAN_ADD': ('space_ban', SpaceBanAddedEvent),
+        'SPACE_BAN_REMOVE': ('space_ban_remove_event', SpaceBanRemovedEvent),
       };
       for (final MapEntry(key: type, value: (name, event)) in added.entries) {
         final e = dispatch(type, _load(name, 'full'));
@@ -777,6 +817,55 @@ void main() {
           as SpaceMemberRemovedEvent;
       expect(removed.data.userId, isNotNull);
       expect((removed.data.statusId, removed.data.user), (null, null));
+    });
+
+    test('SPACE_BAN_ADD: the ban; SPACE_BAN_REMOVE: whose ban, where', () {
+      final json = _load('space_ban', 'full');
+      final added = dispatch('SPACE_BAN_ADD', {
+        ...json,
+        'space_id': 's1',
+        'user_id': 'u2',
+        'banned_by': 'u1',
+      }) as SpaceBanAddedEvent;
+      expect((
+        added.data.spaceId,
+        added.data.userId,
+        added.data.bannedBy,
+        added.data.reason
+      ), (
+        's1',
+        'u2',
+        'u1',
+        json['reason']
+      ));
+      expect(added.data.user.id, (json['user'] as Map)['id']);
+      // Without a reason.
+      final bare = dispatch('SPACE_BAN_ADD', _load('space_ban', 'nulls'))
+          as SpaceBanAddedEvent;
+      expect(bare.data.reason, isNull);
+
+      final removed =
+          dispatch('SPACE_BAN_REMOVE', {'space_id': 's1', 'user_id': 'u2'})
+              as SpaceBanRemovedEvent;
+      expect((removed.data.spaceId, removed.data.userId), ('s1', 'u2'));
+    });
+
+    test('a ban\'s events come on their own streams', () async {
+      final events = _Events();
+      final added = events.onSpaceBanAdd.toList();
+      final removed = events.onSpaceBanRemove.toList();
+      final ban = dispatch('SPACE_BAN_ADD', _load('space_ban', 'full'))!;
+      final lifted = dispatch(
+          'SPACE_BAN_REMOVE', _load('space_ban_remove_event', 'full'))!;
+      final other = dispatch(
+          'SPACE_MEMBER_REMOVE', _load('space_member_remove_event', 'full'))!;
+      events
+        ..add(ban)
+        ..add(lifted)
+        ..add(other);
+      await events.close();
+      expect(await added, [ban]);
+      expect(await removed, [lifted]);
     });
 
     test('USER_STATUS_UPDATE: a bot\'s carries its space; a person\'s none',

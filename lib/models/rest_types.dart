@@ -57,6 +57,46 @@ class SpaceMemberWithUser extends GatewayMember {
 }
 
 // ---------------------------------------------------------------------------
+// Bans
+// ---------------------------------------------------------------------------
+
+/// One of a space's bans: the banned user, why, who banned them and when. The
+/// space's list of bans ([RestMethods.getSpaceBans]) gives them, a ban
+/// ([RestMethods.banUser]) answers one, and SPACE_BAN_ADD carries one.
+class SpaceBan {
+  final String spaceId;
+  final String userId;
+
+  /// The banned user's public profile, the user object the API gives any
+  /// user. It carries no status, so its [GatewayUser.statusId] reads offline.
+  final GatewayUser user;
+
+  /// Why, as the API keeps it: trimmed, and null without one.
+  final String? reason;
+
+  /// Who banned them: a person or a bot.
+  final String bannedBy;
+  final DateTime createdAt;
+
+  const SpaceBan({
+    required this.spaceId,
+    required this.userId,
+    required this.user,
+    this.reason,
+    required this.bannedBy,
+    required this.createdAt,
+  });
+
+  SpaceBan.fromJson(Map<String, dynamic> j)
+      : spaceId = j['space_id'] as String,
+        userId = j['user_id'] as String,
+        user = GatewayUser.fromJson(j['user'] as Map<String, dynamic>),
+        reason = j['reason'] as String?,
+        bannedBy = j['banned_by'] as String,
+        createdAt = DateTime.parse(j['created_at'] as String);
+}
+
+// ---------------------------------------------------------------------------
 // Message search
 // ---------------------------------------------------------------------------
 
