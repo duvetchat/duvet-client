@@ -1,3 +1,60 @@
+## Unreleased
+
+### Breaking changes
+
+- Two events join the sealed `GatewayEventPayload`: `SpaceBanAddedEvent` and
+  `SpaceBanRemovedEvent` (see "Added"). A `switch` over it without a default
+  case has to handle them, and they no longer come as `UnknownEvent`s: code
+  that read them by `type` and `rawData` has to match their own types.
+
+### Added
+
+- **Kicks and bans** (duvetchat/api#275), for the API version that brings them
+  (duvetchat/api#282, not merged yet): an older one answers the four calls
+  with a 404 and sends neither event. Kicking needs Kick Members (`1 << 19`)
+  and the rest Ban Members (`1 << 20`), bits of a role's `permissions` (the
+  package names no permission flags).
+  - `kickMember(spaceId, memberId)`
+    (`DELETE /api/spaces/:spaceId/members/:memberId`) removes a member, by the
+    member ID `getSpaceMembers` gives, and they can join again. Nobody kicks
+    the space's owner or themselves, and anyone but the owner kicks only a
+    member whose highest role is below their own (a 403 otherwise). The
+    space's members get SPACE_MEMBER_REMOVE, and the member SPACE_DELETE.
+  - `banUser(spaceId, userId, reason:)`
+    (`PUT /api/spaces/:spaceId/bans/:userId`) bans a user, a member or not,
+    with a reason or none: the API trims it and takes 512 characters at most.
+    Without one, or with an empty one, no body goes, which the API reads as
+    none. A member is removed as a kick removes them, with its refusals, and
+    nobody banned can join until the ban is lifted: `joinInvite` gets a 403
+    (`you are banned from this space`), as `addBotToSpace` does for a bot. It
+    answers the ban, and whether it's new (`created`, a 201): a user banned
+    already keeps the ban they had, its reason included (a 200).
+  - `unbanUser(spaceId, userId)` (`DELETE /api/spaces/:spaceId/bans/:userId`)
+    lifts a ban; a user who isn't banned is a 404 (`ban not found`).
+  - `getSpaceBans(spaceId, after:, count:)`
+    (`GET /api/spaces/:spaceId/bans`) lists a page of the space's bans, by the
+    banned users' IDs: `count` of them, 1 to 100 (50 unless given), after the
+    user ID `after`.
+  - `SpaceBan`, a ban as the calls and SPACE_BAN_ADD give it: `spaceId`,
+    `userId`, `user` (the banned user's public profile, a `GatewayUser`),
+    `reason` (null without one), `bannedBy` (a person or a bot) and
+    `createdAt`.
+  - SPACE_BAN_ADD (`SpaceBanAddedEvent`, a `SpaceBan`) and SPACE_BAN_REMOVE
+    (`SpaceBanRemovedEvent`, a `SpaceBanRemoveEvent`: `spaceId` and
+    `userId`), with `onSpaceBanAdd` and `onSpaceBanRemove` on
+    `GatewayEvents`. They go to those who may list the space's bans (its
+    owner, and the members with Ban Members, Administrators among them), never
+    to the banned user, and SPACE_BAN_ADD only for a new ban.
+
+### Tests
+
+- A ban, with and without its reason; SPACE_BAN_ADD and SPACE_BAN_REMOVE, and
+  their streams; what each of the four calls sends, a ban's 201 against its
+  200, and the API's refusals. `space_ban` and `space_ban_remove_event` are
+  new, made by `tool/fixtures/generate.sh`'s API generator from api#282's
+  branch (`kick-and-ban`, 6b5987c). The other fixtures it changes belong to
+  other changes, and are left out.
+
 ## 2.5.0 – 2026-11-08
 
 ### Added

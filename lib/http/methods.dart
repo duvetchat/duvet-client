@@ -183,6 +183,56 @@ mixin RestMethods {
     await request('DELETE', '/api/spaces/$spaceId/members/@me', 'leave space');
   }
 
+  // Kicks and bans
+
+  /// Removes a member from the space (needs Kick Members): [memberId] is
+  /// their member ID, as [getSpaceMembers] gives it. They can join it again.
+  /// Nobody kicks the space's owner or themselves, and anyone but the owner
+  /// kicks only a member whose highest role is below their own (a 403
+  /// otherwise; a member gone already, a 404). The space's members get
+  /// SPACE_MEMBER_REMOVE, and the member SPACE_DELETE.
+  Future<void> kickMember(String spaceId, String memberId) async {
+    await request(
+        'DELETE', '/api/spaces/$spaceId/members/$memberId', 'kick member');
+  }
+
+  /// Bans [userId] from the space (needs Ban Members), with [reason] or none:
+  /// the API trims it and takes 512 characters at most, counted as
+  /// [String.runes] counts them (a 400 past that), and an empty one is none.
+  /// A member is removed from the space as [kickMember] removes them, with
+  /// its refusals, and a user who isn't one can be banned too; neither can
+  /// join until [unbanUser] lifts the ban. Answers the ban, and whether it's
+  /// new (`created`, a 201): a user banned already keeps the ban they had,
+  /// its reason included (a 200).
+  Future<({SpaceBan ban, bool created})> banUser(String spaceId, String userId,
+      {String? reason}) async {
+    final response = await request(
+        'PUT', '/api/spaces/$spaceId/bans/$userId', 'ban user',
+        json: reason != null && reason.isNotEmpty ? {'reason': reason} : null);
+    return (
+      ban: SpaceBan.fromJson(_decodeMap(response)),
+      created: response.statusCode == 201,
+    );
+  }
+
+  /// Lifts [userId]'s ban from the space (needs Ban Members): they can join it
+  /// again. A user who isn't banned is a 404 (`ban not found`).
+  Future<void> unbanUser(String spaceId, String userId) async {
+    await request('DELETE', '/api/spaces/$spaceId/bans/$userId', 'unban user');
+  }
+
+  /// A page of the space's bans (needs Ban Members), by the banned users' IDs:
+  /// [count] of them, 1 to 100, from after the user ID [after] (from the first
+  /// without it). The next page starts after the last one's [SpaceBan.userId],
+  /// and a page shorter than [count] is the last.
+  Future<List<SpaceBan>> getSpaceBans(String spaceId,
+      {String? after, int count = 50}) async {
+    final response = await request(
+        'GET', '/api/spaces/$spaceId/bans', 'get space bans',
+        query: {'count': count, 'after': after});
+    return _decodeList(response, SpaceBan.fromJson);
+  }
+
   /// Updates the space. A new [banner] or [icon], or [removeBanner] or
   /// [removeIcon], sends a multipart form, whose progress [onProgress] gets:
   /// the bytes sent so far, and their total. Anything else goes as JSON.

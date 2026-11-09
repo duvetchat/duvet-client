@@ -87,6 +87,10 @@ mixin GatewayEvents {
       onEvent.whereType<SpaceMemberAddedEvent>();
   Stream<SpaceMemberRemovedEvent> get onSpaceMemberRemove =>
       onEvent.whereType<SpaceMemberRemovedEvent>();
+  Stream<SpaceBanAddedEvent> get onSpaceBanAdd =>
+      onEvent.whereType<SpaceBanAddedEvent>();
+  Stream<SpaceBanRemovedEvent> get onSpaceBanRemove =>
+      onEvent.whereType<SpaceBanRemovedEvent>();
 
   Stream<RoleCreatedEvent> get onRoleCreate =>
       onEvent.whereType<RoleCreatedEvent>();

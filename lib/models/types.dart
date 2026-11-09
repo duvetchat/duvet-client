@@ -2442,6 +2442,17 @@ class SpaceMemberEvent {
             : null;
 }
 
+/// SPACE_BAN_REMOVE: a user's ban from a space was lifted, and they can join
+/// it again.
+class SpaceBanRemoveEvent {
+  final String spaceId;
+  final String userId;
+  const SpaceBanRemoveEvent({required this.spaceId, required this.userId});
+  SpaceBanRemoveEvent.fromJson(Map<String, dynamic> j)
+      : spaceId = j['space_id'] as String,
+        userId = j['user_id'] as String;
+}
+
 class GuildMemberAddEvent {
   final String spaceId;
   final String userId;
@@ -2941,6 +2952,24 @@ class SpaceMemberAddedEvent extends GatewayEventPayload {
 class SpaceMemberRemovedEvent extends GatewayEventPayload {
   final SpaceMemberEvent data;
   const SpaceMemberRemovedEvent(this.data);
+}
+
+/// SPACE_BAN_ADD: a user was banned from a space. It goes to those who may
+/// list the space's bans (its owner, and the members with Ban Members,
+/// Administrators among them), never to the banned user, and only for a new
+/// ban: banning a user who is banned already sends none. A member banned also
+/// leaves the space: its members get SPACE_MEMBER_REMOVE, and they
+/// SPACE_DELETE.
+class SpaceBanAddedEvent extends GatewayEventPayload {
+  final SpaceBan data;
+  const SpaceBanAddedEvent(this.data);
+}
+
+/// SPACE_BAN_REMOVE: a user's ban was lifted. It goes where SPACE_BAN_ADD
+/// goes.
+class SpaceBanRemovedEvent extends GatewayEventPayload {
+  final SpaceBanRemoveEvent data;
+  const SpaceBanRemovedEvent(this.data);
 }
 
 class GuildMemberAddedEvent extends GatewayEventPayload {

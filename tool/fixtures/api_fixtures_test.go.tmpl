@@ -101,6 +101,9 @@ func TestWriteFixtures(t *testing.T) {
 	w("space_delete_event", of[ev.SpaceDelete])
 	w("space_member_add_event", of[ev.SpaceMemberAdd])
 	w("space_member_remove_event", of[ev.SpaceMemberRemove])
+	// SPACE_BAN_ADD's ban, as a ban's answer and the list of bans give it too.
+	w("space_ban", of[ev.SpaceBan])
+	w("space_ban_remove_event", of[ev.SpaceBanRemove])
 	w("conversation_update_event", of[ev.ConversationUpdate])
 	w("conversation_member_add_event", of[ev.ConversationMemberAdd])
 	w("conversation_member_remove_event", of[ev.ConversationMemberRemove])

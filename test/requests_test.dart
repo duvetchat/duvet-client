@@ -783,6 +783,95 @@ void main() {
     });
   });
 
+  group('kicks and bans', () {
+    // The ban the API answers, as its fixture has it.
+    final ban =
+        jsonDecode(File('test/fixtures/space_ban.full.json').readAsStringSync())
+            as Map<String, dynamic>;
+    http.Response answer(int status) => http.Response(jsonEncode(ban), status,
+        headers: {'content-type': 'application/json'});
+
+    test('kickMember deletes the member, by member ID, with no body', () async {
+      final c = _client((_) => http.Response('', 204));
+      await c.api.kickMember('s1', 'mem1');
+      final s = c.sent.single;
+      expect((s.method, s.path), ('DELETE', '/api/spaces/s1/members/mem1'));
+      expect((s.request.body, s.contentType), ('', null));
+    });
+
+    test('kickMember: a refusal keeps its status and body', () async {
+      const body = '{"error":"you can only kick or ban members whose highest '
+          'role is below your highest role"}';
+      final c = _client((_) => http.Response(body, 403));
+      await expectLater(
+          c.api.kickMember('s1', 'mem1'),
+          throwsA(isA<DuvetAuthException>()
+              .having((e) => e.statusCode, 'statusCode', 403)
+              .having((e) => e.body, 'body', body)));
+    });
+
+    test('banUser sends the reason as JSON, and no body without one', () async {
+      final c = _client((_) => answer(201));
+      await c.api.banUser('s1', 'u2', reason: 'spamming');
+      await c.api.banUser('s1', 'u2');
+      await c.api.banUser('s1', 'u2', reason: '');
+      expect(c.sent.map((s) => '${s.method} ${s.path}'),
+          List.filled(3, 'PUT /api/spaces/s1/bans/u2'));
+      expect(c.sent[0].json, {'reason': 'spamming'});
+      expect(c.sent[0].contentType, startsWith('application/json'));
+      // No body: the API reads it as no reason.
+      for (final s in c.sent.skip(1)) {
+        expect((s.request.body, s.contentType), ('', null));
+      }
+    });
+
+    test('banUser answers the ban, and whether it is new: a 201, not a 200',
+        () async {
+      var status = 201;
+      final c = _client((_) => answer(status));
+      final banned = await c.api.banUser('s1', 'u2', reason: 'spamming');
+      expect(banned.created, isTrue);
+      expect((banned.ban.userId, banned.ban.reason, banned.ban.user.username),
+          (ban['user_id'], ban['reason'], 's-string'));
+      // Banned already: the ban as it was, its reason included.
+      status = 200;
+      final again = await c.api.banUser('s1', 'u2', reason: 'again');
+      expect((again.created, again.ban.reason), (false, ban['reason']));
+    });
+
+    test('unbanUser deletes the ban; one that isn\'t there is a 404', () async {
+      final c = _client((_) => http.Response('', 204));
+      await c.api.unbanUser('s1', 'u2');
+      final s = c.sent.single;
+      expect((s.method, s.path), ('DELETE', '/api/spaces/s1/bans/u2'));
+      expect((s.request.body, s.contentType), ('', null));
+
+      const body = '{"error":"ban not found"}';
+      final missing = _client((_) => http.Response(body, 404));
+      await expectLater(
+          missing.api.unbanUser('s1', 'u2'),
+          throwsA(isA<DuvetApiException>()
+              .having((e) => e.statusCode, 'statusCode', 404)
+              .having((e) => e.body, 'body', body)));
+    });
+
+    test('getSpaceBans pages by user ID, 50 at a time unless told', () async {
+      final c = _client((_) => [ban]);
+      final page = await c.api.getSpaceBans('s1');
+      await c.api.getSpaceBans('s1', after: 'u2', count: 100);
+      expect(page.single.userId, ban['user_id']);
+      expect(c.sent.map((s) => '${s.method} ${s.path}'),
+          List.filled(2, 'GET /api/spaces/s1/bans'));
+      expect(c.sent[0].query, {
+        'count': ['50']
+      });
+      expect(c.sent[1].query, {
+        'count': ['100'],
+        'after': ['u2'],
+      });
+    });
+  });
+
   group('friends', () {
     test('paths', () async {
       final c = _client((s) => switch ((s.method, s.path)) {

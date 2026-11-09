@@ -93,6 +93,10 @@ class GatewayEnvelope {
         return SpaceMemberAddedEvent(SpaceMemberEvent.fromJson(d));
       case 'SPACE_MEMBER_REMOVE':
         return SpaceMemberRemovedEvent(SpaceMemberEvent.fromJson(d));
+      case 'SPACE_BAN_ADD':
+        return SpaceBanAddedEvent(SpaceBan.fromJson(d));
+      case 'SPACE_BAN_REMOVE':
+        return SpaceBanRemovedEvent(SpaceBanRemoveEvent.fromJson(d));
       case 'GUILD_MEMBER_ADD':
         return GuildMemberAddedEvent(GuildMemberAddEvent.fromJson(d));
       case 'GUILD_MEMBER_REMOVE':
