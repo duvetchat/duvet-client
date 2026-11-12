@@ -111,4 +111,7 @@ func TestWriteFixtures(t *testing.T) {
 	w("dm_mention_create_event", of[ev.DMMentionCreate])
 	w("user_status_update_event", of[ev.UserStatusUpdate])
 	w("user_update_event", of[ev.UserUpdate])
+	// A notification level, as its list and its PUT answer it, and the event of a change.
+	w("notification_setting", of[q.NotificationSetting])
+	w("notification_settings_update_event", of[ev.NotificationSettingsUpdate])
 }

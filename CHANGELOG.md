@@ -1,4 +1,62 @@
-## Unreleased
+## 2.7.0 – 2026-11-12
+
+### Breaking changes
+
+- An event joins the sealed `GatewayEventPayload`:
+  `NotificationSettingsUpdatedEvent` (see "Added"). A `switch` over it
+  without a default case has to handle it, and it no longer comes as an
+  `UnknownEvent`: code that read it by `type` and `rawData` has to match its
+  own type.
+
+### Added
+
+- **Notification levels** (duvetchat/api#297), for the API and gateway
+  versions that bring them (duvetchat/api#298 and duvetchat/gateway#144, not
+  merged yet): an older API answers the three calls with a 404 and sends no
+  event, and an older gateway leaves `default_notifications` out. A user chooses, for a space,
+  a room or a conversation, what they're notified of there: every message
+  (`NotificationLevel.all`), only the messages that mention them
+  (`mentions`) or nothing (`nothing`), which also leaves out the place's
+  unread mark and its mention count. A room without a level of its own goes
+  by its space's, a space without one by its default, and a conversation
+  without one notifies of every message. The three calls are a person's: a
+  bot gets a 403.
+  - `getNotificationSettings()` (`GET /api/users/@me/notification-settings`)
+    lists the levels the user chose, as `NotificationSetting`s: `targetId`,
+    `targetType` (a `NotificationTarget`: `space`, `room` or
+    `conversation`) and `level`.
+  - `setNotificationLevel(targetId, target, level)`
+    (`PUT /api/users/@me/notification-settings/:targetId`) sets one and
+    answers it. An ID of another kind than `target`, or of a place that's
+    gone, is a 404; a space or a conversation the user isn't in, or a room
+    they can't view, a 403.
+  - `clearNotificationLevel(targetId)`
+    (`DELETE /api/users/@me/notification-settings/:targetId`) clears one, and
+    the place notifies by its default again.
+  - NOTIFICATION_SETTINGS_UPDATE (`NotificationSettingsUpdatedEvent`, a
+    `NotificationSettingsUpdateEvent`: `targetId`, `targetType`, and `level`,
+    null once cleared), with `onNotificationSettingsUpdate` on
+    `GatewayEvents`. It goes to every session of the user.
+  - `GatewaySpace.defaultNotifications`, in SPACE_CREATE and SPACE_UPDATE:
+    what the space's members are notified of until they choose, `all` or
+    `mentions`, which its owner and its Administrators set with
+    `updateSpace(defaultNotifications:)` (anything else is an
+    `ArgumentError`). A server from before it leaves it out, read as
+    `mentions`.
+
+### Tests
+
+- A level, its event with and without a level, and its stream; a space's
+  default, and `mentions` without it, also in SPACE_CREATE; what the three
+  calls and `updateSpace`'s default send. `notification_setting` and
+  `notification_settings_update_event` are new, made by
+  `tool/fixtures/generate.sh`'s API generator from api#298's branch
+  (`notification-levels`, d357744), and `default_notifications` is added to
+  `space` and to `space_create_event`'s full variant with the generator's
+  value. The other fixtures it changes belong to other changes, and are left
+  out.
+
+## 2.6.0 – 2026-11-11
 
 ### Breaking changes
 

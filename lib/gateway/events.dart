@@ -91,6 +91,8 @@ mixin GatewayEvents {
       onEvent.whereType<SpaceBanAddedEvent>();
   Stream<SpaceBanRemovedEvent> get onSpaceBanRemove =>
       onEvent.whereType<SpaceBanRemovedEvent>();
+  Stream<NotificationSettingsUpdatedEvent> get onNotificationSettingsUpdate =>
+      onEvent.whereType<NotificationSettingsUpdatedEvent>();
 
   Stream<RoleCreatedEvent> get onRoleCreate =>
       onEvent.whereType<RoleCreatedEvent>();

@@ -280,6 +280,21 @@ void main() {
 
   group('spaces', () {
     _parses('space', GatewaySpace.fromJson);
+    test('a space\'s default notifications, only mentions without them', () {
+      final full = _load('space', 'full');
+      expect(
+          GatewaySpace.fromJson({...full, 'default_notifications': 0})
+              .defaultNotifications,
+          NotificationLevel.all);
+      // A server from before them leaves the field out.
+      expect(
+          GatewaySpace.fromJson(_without(full, 'default_notifications'))
+              .defaultNotifications,
+          NotificationLevel.mentions);
+    });
+    _parses('notification_setting', NotificationSetting.fromJson,
+        check: (s, _) => expect((s.targetType, s.level),
+            (NotificationTarget.conversation, NotificationLevel.nothing)));
     _parses('room', GatewayRoom.fromJson);
     _parses('room_read_state', RoomReadState.fromJson);
     _parses('role', GatewayRole.fromJson);
@@ -596,6 +611,10 @@ void main() {
       'TEAM_INVITE_CREATE': ('team_invite_create_event', []),
       'VOICE_VIDEO_REFUSED': ('voice_video_refused_event', []),
       'STORAGE_TRANSFER_UPDATE': ('storage_transfer_update_event', []),
+      'NOTIFICATION_SETTINGS_UPDATE': (
+        'notification_settings_update_event',
+        []
+      ),
     };
 
     // Handled by the client, but neither the API nor the gateway sends them.
@@ -663,6 +682,10 @@ void main() {
         'CALL_ONGOING': ('call_ongoing_event', CallOngoingPayloadEvent),
         'SPACE_BAN_ADD': ('space_ban', SpaceBanAddedEvent),
         'SPACE_BAN_REMOVE': ('space_ban_remove_event', SpaceBanRemovedEvent),
+        'NOTIFICATION_SETTINGS_UPDATE': (
+          'notification_settings_update_event',
+          NotificationSettingsUpdatedEvent
+        ),
       };
       for (final MapEntry(key: type, value: (name, event)) in added.entries) {
         final e = dispatch(type, _load(name, 'full'));
@@ -866,6 +889,41 @@ void main() {
       await events.close();
       expect(await added, [ban]);
       expect(await removed, [lifted]);
+    });
+
+    test(
+        'NOTIFICATION_SETTINGS_UPDATE: the place, its kind and its level, '
+        'null once cleared, on its own stream', () async {
+      final set = dispatch('NOTIFICATION_SETTINGS_UPDATE', {
+        'target_id': 'r1',
+        'target_type': 1,
+        'level': 2
+      }) as NotificationSettingsUpdatedEvent;
+      expect((set.data.targetId, set.data.targetType, set.data.level),
+          ('r1', NotificationTarget.room, NotificationLevel.nothing));
+      final cleared = dispatch('NOTIFICATION_SETTINGS_UPDATE',
+              _load('notification_settings_update_event', 'nulls'))
+          as NotificationSettingsUpdatedEvent;
+      expect(cleared.data.level, isNull);
+      final events = _Events();
+      final got = events.onNotificationSettingsUpdate.toList();
+      events
+        ..add(set)
+        ..add(dispatch('SPACE_BAN_ADD', _load('space_ban', 'full'))!);
+      await events.close();
+      expect(await got, [set]);
+    });
+
+    test(
+        'SPACE_CREATE: the space\'s default notifications, only mentions '
+        'from a gateway without them', () {
+      final full = dispatch('SPACE_CREATE', _load('space_create_event', 'full'))
+          as SpaceCreateEvent;
+      expect(full.data.space.defaultNotifications, const NotificationLevel(2));
+      final bare =
+          dispatch('SPACE_CREATE', _load('space_create_event', 'nulls'))
+              as SpaceCreateEvent;
+      expect(bare.data.space.defaultNotifications, NotificationLevel.mentions);
     });
 
     test('USER_STATUS_UPDATE: a bot\'s carries its space; a person\'s none',
