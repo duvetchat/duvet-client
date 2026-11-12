@@ -97,6 +97,9 @@ class GatewayEnvelope {
         return SpaceBanAddedEvent(SpaceBan.fromJson(d));
       case 'SPACE_BAN_REMOVE':
         return SpaceBanRemovedEvent(SpaceBanRemoveEvent.fromJson(d));
+      case 'NOTIFICATION_SETTINGS_UPDATE':
+        return NotificationSettingsUpdatedEvent(
+            NotificationSettingsUpdateEvent.fromJson(d));
       case 'GUILD_MEMBER_ADD':
         return GuildMemberAddedEvent(GuildMemberAddEvent.fromJson(d));
       case 'GUILD_MEMBER_REMOVE':

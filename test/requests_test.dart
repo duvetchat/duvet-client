@@ -872,6 +872,62 @@ void main() {
     });
   });
 
+  group('notification levels', () {
+    // A level, as the API's fixture has it.
+    final setting = jsonDecode(
+        File('test/fixtures/notification_setting.full.json')
+            .readAsStringSync()) as Map<String, dynamic>;
+
+    test('getNotificationSettings lists the levels the user chose', () async {
+      final c = _client((_) => [setting]);
+      final levels = await c.api.getNotificationSettings();
+      expect((c.sent.single.method, c.sent.single.path),
+          ('GET', '/api/users/@me/notification-settings'));
+      expect((levels.single.targetId, levels.single.level),
+          (setting['target_id'], NotificationLevel.nothing));
+    });
+
+    test('setNotificationLevel puts the place\'s kind and level, by its ID',
+        () async {
+      final c = _client((_) => setting);
+      final saved = await c.api.setNotificationLevel(
+          'r1', NotificationTarget.room, NotificationLevel.nothing);
+      final s = c.sent.single;
+      expect((s.method, s.path),
+          ('PUT', '/api/users/@me/notification-settings/r1'));
+      expect(s.json, {'target_type': 1, 'level': 2});
+      expect(saved.targetType, NotificationTarget.conversation);
+    });
+
+    test('clearNotificationLevel deletes the place\'s level, with no body',
+        () async {
+      final c = _client((_) => http.Response('', 204));
+      await c.api.clearNotificationLevel('r1');
+      final s = c.sent.single;
+      expect((s.method, s.path),
+          ('DELETE', '/api/users/@me/notification-settings/r1'));
+      expect((s.request.body, s.contentType), ('', null));
+    });
+
+    test('updateSpace sends the space\'s default in JSON and in a form',
+        () async {
+      final c = _client((_) => {'id': 's1'});
+      await c.api
+          .updateSpace('s1', defaultNotifications: NotificationLevel.all);
+      await c.api.updateSpace('s1',
+          removeIcon: true, defaultNotifications: NotificationLevel.mentions);
+      expect(c.sent[0].json, {'default_notifications': 0});
+      expect(c.sent[1].request.body,
+          contains('name="default_notifications"\r\n\r\n1'));
+      // Nothing isn't a default: nothing is sent.
+      await expectLater(
+          c.api.updateSpace('s1',
+              defaultNotifications: NotificationLevel.nothing),
+          throwsArgumentError);
+      expect(c.sent, hasLength(2));
+    });
+  });
+
   group('friends', () {
     test('paths', () async {
       final c = _client((s) => switch ((s.method, s.path)) {

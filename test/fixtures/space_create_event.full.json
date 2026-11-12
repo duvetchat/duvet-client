@@ -7,6 +7,7 @@
     "icon": "s-string",
     "banner": "s-string",
     "locale": "s-string",
+    "default_notifications": 2,
     "created_at": "2026-10-22T10:00:00.123456789Z",
     "updated_at": "2026-10-22T10:00:00.123456789Z"
   },

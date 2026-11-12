@@ -97,6 +97,29 @@ class SpaceBan {
 }
 
 // ---------------------------------------------------------------------------
+// Notification levels
+// ---------------------------------------------------------------------------
+
+/// A notification level the user chose for a place: their list of them
+/// ([RestMethods.getNotificationSettings]) gives them, and setting one
+/// ([RestMethods.setNotificationLevel]) answers it.
+class NotificationSetting {
+  /// The place: a space's, a room's or a conversation's ID, as [targetType]
+  /// says.
+  final String targetId;
+  final NotificationTarget targetType;
+  final NotificationLevel level;
+
+  const NotificationSetting(
+      {required this.targetId, required this.targetType, required this.level});
+
+  NotificationSetting.fromJson(Map<String, dynamic> j)
+      : targetId = j['target_id'] as String,
+        targetType = NotificationTarget(j['target_type'] as int),
+        level = NotificationLevel(j['level'] as int);
+}
+
+// ---------------------------------------------------------------------------
 // Message search
 // ---------------------------------------------------------------------------
 

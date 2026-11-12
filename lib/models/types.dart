@@ -110,6 +110,26 @@ final class MessageReferenceType extends EnumLike<int, MessageReferenceType> {
   const MessageReferenceType(super.value);
 }
 
+/// What a user is notified of in a place: every message, only the messages
+/// that mention them, or nothing, which also leaves out the place's unread
+/// mark and its mention count. A place without a level of the user's own
+/// notifies by its default: a room by its space's level, a space by its
+/// [GatewaySpace.defaultNotifications], a conversation by every message.
+final class NotificationLevel extends EnumLike<int, NotificationLevel> {
+  static const all = NotificationLevel(0);
+  static const mentions = NotificationLevel(1);
+  static const nothing = NotificationLevel(2);
+  const NotificationLevel(super.value);
+}
+
+/// The kind of place a notification level is for.
+final class NotificationTarget extends EnumLike<int, NotificationTarget> {
+  static const space = NotificationTarget(0);
+  static const room = NotificationTarget(1);
+  static const conversation = NotificationTarget(2);
+  const NotificationTarget(super.value);
+}
+
 // ---------------------------------------------------------------------------
 // Embed models
 // ---------------------------------------------------------------------------
@@ -1016,6 +1036,12 @@ class GatewaySpace {
   final String? icon;
   final String ownerId;
   final String? locale;
+
+  /// What the space's members are notified of until they choose a level of
+  /// their own: [NotificationLevel.all] or [NotificationLevel.mentions], set
+  /// by its owner and its Administrators ([RestMethods.updateSpace]). A server
+  /// from before it leaves it out, read as [NotificationLevel.mentions].
+  final NotificationLevel defaultNotifications;
   final GatewayMember? member;
   final Map<String, List<String>> memberRoles;
   final List<GatewayRoomOverwrite> roomOverwrites;
@@ -1036,6 +1062,7 @@ class GatewaySpace {
     this.icon,
     required this.ownerId,
     this.locale,
+    this.defaultNotifications = NotificationLevel.mentions,
     this.member,
     required this.memberRoles,
     required this.roomOverwrites,
@@ -1057,6 +1084,8 @@ class GatewaySpace {
         icon = j['icon'] as String?,
         ownerId = j['owner_id'] as String,
         locale = j['locale'] as String?,
+        defaultNotifications =
+            NotificationLevel(j['default_notifications'] as int? ?? 1),
         member = j['member'] != null
             ? GatewayMember.fromJson(j['member'] as Map<String, dynamic>)
             : null,
@@ -2442,6 +2471,23 @@ class SpaceMemberEvent {
             : null;
 }
 
+/// NOTIFICATION_SETTINGS_UPDATE's data: the place ([targetId], of the kind
+/// [targetType]) and the user's new level there, or null once they cleared it
+/// and the place notifies by its default again.
+class NotificationSettingsUpdateEvent {
+  final String targetId;
+  final NotificationTarget targetType;
+  final NotificationLevel? level;
+
+  const NotificationSettingsUpdateEvent(
+      {required this.targetId, required this.targetType, this.level});
+  NotificationSettingsUpdateEvent.fromJson(Map<String, dynamic> j)
+      : targetId = j['target_id'] as String,
+        targetType = NotificationTarget(j['target_type'] as int),
+        level =
+            j['level'] != null ? NotificationLevel(j['level'] as int) : null;
+}
+
 /// SPACE_BAN_REMOVE: a user's ban from a space was lifted, and they can join
 /// it again.
 class SpaceBanRemoveEvent {
@@ -2970,6 +3016,13 @@ class SpaceBanAddedEvent extends GatewayEventPayload {
 class SpaceBanRemovedEvent extends GatewayEventPayload {
   final SpaceBanRemoveEvent data;
   const SpaceBanRemovedEvent(this.data);
+}
+
+/// NOTIFICATION_SETTINGS_UPDATE: the user's notification level for a place
+/// changed, on every session of theirs.
+class NotificationSettingsUpdatedEvent extends GatewayEventPayload {
+  final NotificationSettingsUpdateEvent data;
+  const NotificationSettingsUpdatedEvent(this.data);
 }
 
 class GuildMemberAddedEvent extends GatewayEventPayload {

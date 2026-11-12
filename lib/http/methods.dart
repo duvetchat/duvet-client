@@ -236,6 +236,9 @@ mixin RestMethods {
   /// Updates the space. A new [banner] or [icon], or [removeBanner] or
   /// [removeIcon], sends a multipart form, whose progress [onProgress] gets:
   /// the bytes sent so far, and their total. Anything else goes as JSON.
+  /// [defaultNotifications] is what its members are notified of until they
+  /// choose: [NotificationLevel.all] or [NotificationLevel.mentions] (anything
+  /// else is an [ArgumentError], and nothing is sent).
   Future<Map<String, dynamic>> updateSpace(
     String spaceId, {
     String? name,
@@ -245,8 +248,15 @@ mixin RestMethods {
     File? icon,
     bool removeBanner = false,
     bool removeIcon = false,
+    NotificationLevel? defaultNotifications,
     void Function(int sent, int total)? onProgress,
   }) async {
+    if (defaultNotifications != null &&
+        defaultNotifications != NotificationLevel.all &&
+        defaultNotifications != NotificationLevel.mentions) {
+      throw ArgumentError.value(defaultNotifications.value,
+          'defaultNotifications', 'must be all (0) or mentions (1)');
+    }
     final path = '/api/spaces/$spaceId';
     final http.Response response;
     if (banner != null || icon != null || removeBanner || removeIcon) {
@@ -257,6 +267,8 @@ mixin RestMethods {
             if (locale != null) 'locale': locale,
             if (removeBanner) 'remove_banner': 'true',
             if (removeIcon) 'remove_icon': 'true',
+            if (defaultNotifications != null)
+              'default_notifications': '${defaultNotifications.value}',
           },
           files: [
             if (banner != null) await _filePart('banner', banner),
@@ -268,6 +280,8 @@ mixin RestMethods {
         if (name != null) 'name': name,
         if (description != null) 'description': description,
         if (locale != null) 'locale': locale,
+        if (defaultNotifications != null)
+          'default_notifications': defaultNotifications.value,
       });
     }
     return _decodeMap(response);
@@ -1286,6 +1300,41 @@ mixin RestMethods {
     final response = await request('PUT', '/api/users/@me/status', 'set status',
         json: {'status': status.value});
     return UserMeResult.fromJson(_decodeMap(response));
+  }
+
+  // Notification levels (a bot gets 403 from all three)
+
+  /// The notification levels the user chose, one for each place they chose
+  /// one for. A place without one notifies by its default (see
+  /// [NotificationLevel]).
+  Future<List<NotificationSetting>> getNotificationSettings() async {
+    final response = await request('GET',
+        '/api/users/@me/notification-settings', 'get notification settings');
+    return _decodeList(response, NotificationSetting.fromJson);
+  }
+
+  /// Sets the user's notification [level] for a place: [targetId] is a
+  /// space's, a room's or a conversation's ID, as [target] says. An ID of
+  /// another kind, or of a place that's gone, is a 404; a space or a
+  /// conversation they're not in, or a room they can't view, a 403. Every
+  /// session of theirs gets NOTIFICATION_SETTINGS_UPDATE.
+  Future<NotificationSetting> setNotificationLevel(String targetId,
+      NotificationTarget target, NotificationLevel level) async {
+    final response = await request(
+        'PUT',
+        '/api/users/@me/notification-settings/$targetId',
+        'set notification level',
+        json: {'target_type': target.value, 'level': level.value});
+    return NotificationSetting.fromJson(_decodeMap(response));
+  }
+
+  /// Clears the user's notification level for [targetId], which notifies by
+  /// its default again; one that isn't set is left as it is. Every session of
+  /// theirs gets NOTIFICATION_SETTINGS_UPDATE without a level, when there was
+  /// one.
+  Future<void> clearNotificationLevel(String targetId) async {
+    await request('DELETE', '/api/users/@me/notification-settings/$targetId',
+        'clear notification level');
   }
 
   /// Sets the user's avatar or banner ([kind]) to the image as given: the API
