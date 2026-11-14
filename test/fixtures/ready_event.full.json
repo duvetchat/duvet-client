@@ -46,7 +46,10 @@
           "deafened": true,
           "screen_sharing": true,
           "camera": true,
-          "version": 2
+          "version": 2,
+          "watching": [
+            "s-string"
+          ]
         }
       ],
       "ringing": true,

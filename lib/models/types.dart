@@ -803,6 +803,9 @@ class GatewayVoiceState {
   /// Their camera is on.
   final bool camera;
 
+  /// Whose screen share they're watching, by user ID: none when nobody's.
+  final List<String> watching;
+
   /// Orders this state among VOICE_STATE_UPDATEs: see [VoiceStateEvent].
   final int version;
 
@@ -814,6 +817,7 @@ class GatewayVoiceState {
     this.screenSharing = false,
     this.camera = false,
     this.version = 0,
+    this.watching = const [],
   });
 
   GatewayVoiceState.fromJson(Map<String, dynamic> j)
@@ -823,7 +827,11 @@ class GatewayVoiceState {
         deafened = j['deafened'] as bool? ?? false,
         screenSharing = j['screen_sharing'] as bool? ?? false,
         camera = j['camera'] as bool? ?? false,
-        version = j['version'] as int? ?? 0;
+        version = j['version'] as int? ?? 0,
+        watching = (j['watching'] as List<dynamic>?)
+                ?.map((e) => e as String)
+                .toList() ??
+            const [];
 }
 
 // ---------------------------------------------------------------------------
@@ -1671,6 +1679,9 @@ class CallVoiceState {
 
   /// Their camera is on.
   final bool camera;
+
+  /// Whose screen share they're watching, by user ID: none when nobody's.
+  final List<String> watching;
   final int version;
 
   const CallVoiceState({
@@ -1680,6 +1691,7 @@ class CallVoiceState {
     this.screenSharing = false,
     this.camera = false,
     this.version = 0,
+    this.watching = const [],
   });
 
   CallVoiceState.fromJson(Map<String, dynamic> j)
@@ -1688,7 +1700,11 @@ class CallVoiceState {
         deafened = j['deafened'] as bool? ?? false,
         screenSharing = j['screen_sharing'] as bool? ?? false,
         camera = j['camera'] as bool? ?? false,
-        version = j['version'] as int? ?? 0;
+        version = j['version'] as int? ?? 0,
+        watching = (j['watching'] as List<dynamic>?)
+                ?.map((e) => e as String)
+                .toList() ??
+            const [];
 }
 
 /// A STUN or TURN server for a peer connection, as READY hands them out: the
@@ -2229,6 +2245,9 @@ class VoiceStateEvent {
 
   /// Their camera is on.
   final bool camera;
+
+  /// Whose screen share they're watching, by user ID: none when nobody's.
+  final List<String> watching;
   final int version;
   const VoiceStateEvent({
     required this.roomId,
@@ -2239,6 +2258,7 @@ class VoiceStateEvent {
     this.screenSharing = false,
     this.camera = false,
     this.version = 0,
+    this.watching = const [],
   });
   VoiceStateEvent.fromJson(Map<String, dynamic> j)
       : roomId = j['room_id'] as String,
@@ -2248,7 +2268,11 @@ class VoiceStateEvent {
         deafened = j['deafened'] as bool? ?? false,
         screenSharing = j['screen_sharing'] as bool? ?? false,
         camera = j['camera'] as bool? ?? false,
-        version = j['version'] as int? ?? 0;
+        version = j['version'] as int? ?? 0,
+        watching = (j['watching'] as List<dynamic>?)
+                ?.map((e) => e as String)
+                .toList() ??
+            const [];
 }
 
 /// A WebRTC session description: an offer or an answer.
