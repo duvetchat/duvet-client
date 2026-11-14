@@ -1,3 +1,37 @@
+## 2.8.0 – 2026-11-13
+
+### Breaking changes
+
+- `WebRTCController.syncVoice` takes a required `watching`, as it does every
+  other field of the state: VOICE_SYNC replaces the whole state, so a sync
+  without it would say the user watches nobody (see "Added").
+
+### Added
+
+- **Who watches a screen share** (duvetchat/client#42), for the gateway
+  version that brings it (duvetchat/gateway#152; documented in
+  duvetchat/docs#134): an older gateway ignores it and leaves it out, read as
+  none.
+  - `watching` on `GatewayVoiceState` (SPACE_CREATE's `voice_states`),
+    `CallVoiceState` (READY's `active_calls` and CALL_ONGOING),
+    `VoiceStateEvent` (VOICE_STATE_UPDATE) and `VoiceParticipant`, which
+    `VoiceStates` keeps from them: the user IDs whose screen share the person
+    watches in that room or call, in the order they opened them, empty when
+    the gateway leaves it out.
+  - `syncVoice(watching:)` sends it as VOICE_SYNC's `watching`. The gateway
+    keeps 25 IDs at most, without repeats, the sender's own ID or anything
+    that isn't a user ID.
+
+### Tests
+
+- `watching` read from VOICE_STATE_UPDATE, SPACE_CREATE, READY's calls and
+  CALL_ONGOING, and empty when left out; `VoiceStates` keeping it from an
+  update and both snapshots; `syncVoice` sending it, empty and not. It is
+  added by hand, with the generator's values, to the full variants of
+  `voice_state_update_event`, `space_create_event`, `ready_event` and
+  `call_ongoing_event`; their nulls and partial variants leave it out, as
+  the gateway's `omitempty` does for an empty list.
+
 ## 2.7.0 – 2026-11-12
 
 ### Breaking changes

@@ -24,6 +24,9 @@ class VoiceParticipant {
   /// The state's version: see [VoiceStateEvent.version].
   final int version;
 
+  /// Whose screen share they're watching, by user ID: none when nobody's.
+  final List<String> watching;
+
   const VoiceParticipant({
     required this.userId,
     required this.roomId,
@@ -32,12 +35,13 @@ class VoiceParticipant {
     this.screenSharing = false,
     this.camera = false,
     this.version = 0,
+    this.watching = const [],
   });
 
   @override
   String toString() => 'VoiceParticipant(userId=$userId, roomId=$roomId, '
       'muted=$muted, deafened=$deafened, screenSharing=$screenSharing, '
-      'camera=$camera, version=$version)';
+      'camera=$camera, version=$version, watching=$watching)';
 }
 
 /// Who's in voice in every room and call a session knows of, kept as the
@@ -89,6 +93,7 @@ class VoiceStates {
         screenSharing: s.screenSharing,
         camera: s.camera,
         version: s.version,
+        watching: s.watching,
       ));
     }
   }
@@ -110,6 +115,7 @@ class VoiceStates {
         screenSharing: s.screenSharing,
         camera: s.camera,
         version: s.version,
+        watching: s.watching,
       ));
     }
   }
@@ -134,6 +140,7 @@ class VoiceStates {
         screenSharing: e.screenSharing,
         camera: e.camera,
         version: e.version,
+        watching: e.watching,
       );
     } else {
       final room = _rooms[e.roomId];
@@ -168,9 +175,9 @@ class VoiceStates {
 ///   // set e.data.offer, then answer it
 ///   rtc.sendAnswer(e.data.roomId, answer);
 /// });
-/// rtc.joinVoice(roomId, offer, videoOff: true);
+/// rtc.joinVoice(roomId, offer, videoOff: false);
 /// rtc.syncVoice(roomId, muted: false, deafened: false, screenSharing: false,
-///     camera: false, videoOff: true);
+///     camera: false, videoOff: false, watching: [sharerId]);
 /// ```
 ///
 /// ### Calls
@@ -289,6 +296,10 @@ class WebRTCController {
   /// VOICE_SYNC: the client's whole voice state in [roomId]. The gateway
   /// replaces its state with each one, so every field is required: one left
   /// out would turn that off.
+  ///
+  /// [watching] is whose screen share the user watches there, by user ID, in
+  /// the order they opened them: the gateway keeps 25 at most, without
+  /// repeats or the user's own ID.
   bool syncVoice(
     String roomId, {
     required bool muted,
@@ -296,6 +307,7 @@ class WebRTCController {
     required bool screenSharing,
     required bool camera,
     required bool videoOff,
+    required List<String> watching,
   }) =>
       _send('VOICE_SYNC', {
         'room_id': roomId,
@@ -304,6 +316,7 @@ class WebRTCController {
         'screen_sharing': screenSharing,
         'camera': camera,
         'video_off': videoOff,
+        'watching': watching,
       });
 
   /// WEBRTC_ICE_CANDIDATE: one of the peer connection's ICE candidates.

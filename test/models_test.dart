@@ -1371,6 +1371,7 @@ void main() {
       final e = dispatch('READY', _load('ready_event', 'full')) as ReadyEvent;
       final state = e.data.activeCalls!.single.voiceStates!.single;
       expect((state.camera, state.version), (true, 2));
+      expect(state.watching, ['s-string']);
     });
 
     test('SPACE_CREATE: the voice rooms\' states', () {
@@ -1378,6 +1379,7 @@ void main() {
           as SpaceCreateEvent;
       final state = e.data.voiceStates!.single;
       expect((state.muted, state.camera, state.version), (true, true, 2));
+      expect(state.watching, ['11020202-0202-7002-8002-020202020202']);
       final nulls =
           dispatch('SPACE_CREATE', _load('space_create_event', 'nulls'))
               as SpaceCreateEvent;
@@ -1403,10 +1405,13 @@ void main() {
         true,
         2
       ));
+      expect(joined.data.watching, ['s-string']);
       final left = dispatch(
               'VOICE_STATE_UPDATE', _load('voice_state_update_event', 'nulls'))
           as VoiceStateUpdatedEvent;
       expect((left.data.joined, left.data.muted), (false, false));
+      // omitempty: no watching while they watch nobody.
+      expect(left.data.watching, isEmpty);
     });
 
     test('VOICE_JOINED and the renegotiations carry their descriptions', () {
@@ -1509,6 +1514,7 @@ void main() {
       expect(
           (ongoing.data.initiatorId, ongoing.data.voiceStates?.single.camera),
           ('s-string', true));
+      expect(ongoing.data.voiceStates?.single.watching, ['s-string']);
       // Null while nobody is in the call's voice.
       final empty = dispatch('CALL_ONGOING',
               _withNull(_load('call_ongoing_event', 'full'), 'voice_states'))

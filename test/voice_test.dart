@@ -56,6 +56,7 @@ GatewaySpaceCreatePayload _space(
             'screen_sharing': s.screenSharing,
             'camera': s.camera,
             'version': s.version,
+            'watching': s.watching,
           },
       ],
     })) as Map<String, dynamic>);
@@ -214,6 +215,43 @@ void main() {
       expect(states.participantsIn('c1'), isEmpty);
     });
 
+    test('a state keeps whose screen share they watch', () {
+      final states = VoiceStates()
+        ..apply(const VoiceStateEvent(
+            roomId: 'r1',
+            userId: 'maya',
+            joined: true,
+            version: 1,
+            watching: ['leo']));
+      expect(states.participantsIn('r1').single.watching, ['leo']);
+      states.space(_space([
+        'r1'
+      ], [
+        const GatewayVoiceState(
+            roomId: 'r1', userId: 'maya', version: 2, watching: ['ana']),
+      ]));
+      expect(states.participantsIn('r1').single.watching, ['ana']);
+      states.ongoing(CallOngoingEvent.fromJson({
+        'conversation_id': 'c1',
+        'initiator_id': 'leo',
+        'voice_states': [
+          {
+            'user_id': 'leo',
+            'version': 3,
+            'watching': ['ana']
+          },
+          {'user_id': 'ana', 'version': 3},
+        ],
+      }));
+      final call = {
+        for (final p in states.participantsIn('c1')) p.userId: p.watching
+      };
+      expect(call, {
+        'leo': ['ana'],
+        'ana': isEmpty,
+      });
+    });
+
     test('a forgotten room is empty', () {
       final states = VoiceStates()..apply(_state('c1', 'maya', 1));
       states.forget('c1');
@@ -260,7 +298,15 @@ void main() {
           deafened: false,
           screenSharing: false,
           camera: false,
-          videoOff: true);
+          videoOff: true,
+          watching: const []);
+      rtc.syncVoice('r1',
+          muted: false,
+          deafened: false,
+          screenSharing: false,
+          camera: false,
+          videoOff: false,
+          watching: ['maya']);
       rtc.sendIceCandidate(
           'r1',
           const IceCandidateInit(
@@ -275,7 +321,7 @@ void main() {
       rtc.declineCall('c1');
       rtc.cancelCall('c1');
       rtc.leaveCall('c1');
-      await gateway.received(11);
+      await gateway.received(12);
 
       expect(gateway.messages, [
         {
@@ -296,6 +342,19 @@ void main() {
             'screen_sharing': false,
             'camera': false,
             'video_off': true,
+            'watching': [],
+          },
+        },
+        {
+          'type': 'VOICE_SYNC',
+          'data': {
+            'room_id': 'r1',
+            'muted': false,
+            'deafened': false,
+            'screen_sharing': false,
+            'camera': false,
+            'video_off': false,
+            'watching': ['maya'],
           },
         },
         {
